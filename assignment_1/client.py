@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 from socket import socket, AF_INET, SOCK_STREAM, SOCK_DGRAM
+import sys
 
 import constants
 
@@ -34,8 +35,8 @@ class Client(object):
         # (req_code).
         s.send(self.req_code)
 
-        # if the req_code is invalid, the server should reply to the client “0”, and the
-        # client should terminate with an error “Invalid req_code."
+        # if the req_code is invalid, the server should reply to the client "0", and the
+        # client should terminate with an error "Invalid req_code."
         req_code_response = s.recv(constants.BUFFER_SIZE)
         s.close()
 
@@ -45,13 +46,13 @@ class Client(object):
         else:
             udp_port = int(req_code_response)
 
-        # The client sends a message “GET”, over UDP, to the server
-        s = socket((AF_INET, SOCK_DGRAM))
+        # The client sends a message "GET", over UDP, to the server
+        s = socket(AF_INET, SOCK_DGRAM)
         s.sendto(constants.GET_MESSAGE.encode(), (self.addr, udp_port))
 
         # The server should then send all stored messages over UDP to the client.
-        serverAddress = ""
-        while serverAddress != self.addr:
+        serverAddress = ("", "")
+        while serverAddress[0] != self.addr:
             messages, serverAddress = s.recvfrom(constants.BUFFER_SIZE)
 
         messages = messages.decode()
@@ -64,8 +65,8 @@ class Client(object):
         s.sendto(self.msg.encode(), (self.addr, udp_port))
         s.close()
 
-        # The client waits for keyboard input before exiting.
-        _ = input(prompt=constants.KEYBOARD_MESSAGE_EXIT)
+        # The client waits for keyboard input before exiting.        #
+        raw_input(constants.KEYBOARD_MESSAGE_EXIT)
         return True
 
 def main():

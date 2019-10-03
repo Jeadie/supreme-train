@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 import random
-from socket import socket, AF_INET, SOCK_STREAM, SOCK_DGRAM
+from socket import socket, AF_INET, SOCK_STREAM, SOCK_DGRAM, timeout
 import threading
 
 import constants
@@ -23,18 +23,28 @@ class Server(object):
         udp_s.bind(('', udp_port))
 
         # Send UDP port name to client over initial TCP connection
-        tcp_conn.send(udp_port)
+        tcp_conn.send(str(udp_port))
 
         # Close TCP connection
         tcp_conn.close()
 
-        message, _ = udp_s.recvfrom(constants.BUFFER_SIZE)
-        message = message.decode()
+        recv_count = 0
 
+        # To messages will be sent by client, a GET and a message
+        while recv_count < 2:
+            # Receive message
+            message, addr = udp_s.recvfrom(constants.BUFFER_SIZE)
+            message = message.decode()
 
+            # if GET message, send list of messages.
+            if message == constants.GET_MESSAGE:
+                reply = "\n".join(self.message_queue)
+                udp_s.sendto(reply.encode(), addr)
 
-
-
+            # Add onto message queue.
+            else:
+                self.message_queue.append(message)
+            recv_count +=1
 
         # Remove udp_port from list.
         self.udp_ports.remove(udp_port)
@@ -53,16 +63,19 @@ class Server(object):
         self.message_queue = [constants.INITIAL_SERVER_MESSAGE]
         self.udp_ports = []
 
-        # Create TCP Connection
+        # Create TCP Connection on random port above 1024
         tcp_socket = socket(AF_INET, SOCK_STREAM)
         port = random.randint(1025, 65534)
         tcp_socket.bind(("", port))
         self.print_port(port)
         tcp_socket.listen(constants.MAX_QUEUED_CONNECTIONS)
+        tcp_socket.settimeout(constants.SERVER_LOOP_TIMEOUT)
 
         while constants.SERVER_END_MESSAGE not in self.message_queue:
-            c, addr = tcp_socket.accept()
-
+            try:
+                c, addr = tcp_socket.accept()
+            except timeout:
+                continue
             # Get and validate request code
             req_code = c.recv(constants.BUFFER_SIZE).decode()
 
@@ -76,8 +89,8 @@ class Server(object):
                 udp_port = max(self.udp_ports + [port]) + 1
                 self.udp_ports.append(udp_port)
 
-                threading.Thread(target = self.udp_server, args=(c, udp_port))
-                threading.start()
+                t = threading.Thread(target = self.udp_server, args=(c, udp_port))
+                t.start()
 
 
         # Close main TCP server.
