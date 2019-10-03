@@ -25,9 +25,6 @@ class Server(object):
         # Send UDP port name to client over initial TCP connection
         tcp_conn.send(str(udp_port))
 
-        # Close TCP connection
-        tcp_conn.close()
-
         recv_count = 0
 
         # To messages will be sent by client, a GET and a message
@@ -38,13 +35,16 @@ class Server(object):
 
             # if GET message, send list of messages.
             if message == constants.GET_MESSAGE:
-                reply = "\n".join(self.message_queue)
-                udp_s.sendto(reply.encode(), addr)
+                for m in self.message_queue:
+                    udp_s.sendto(m.encode(), addr)
+                udp_s.sendto(constants.SERVER_DONE_MESSAGES.encode(), addr)
 
             # Add onto message queue.
             else:
-                self.message_queue.append(message)
-            recv_count +=1
+                if message == constants.SERVER_END_MESSAGE:
+                    self.close_server = True
+                self.message_queue.append("[{0}]: {1}".format(udp_port, message))
+            recv_count += 1
 
         # Remove udp_port from list.
         self.udp_ports.remove(udp_port)
@@ -60,8 +60,9 @@ class Server(object):
         """
 
         # Clear Message Queue
-        self.message_queue = [constants.INITIAL_SERVER_MESSAGE]
+        self.message_queue = []
         self.udp_ports = []
+        self.close_server = False
 
         # Create TCP Connection on random port above 1024
         tcp_socket = socket(AF_INET, SOCK_STREAM)
@@ -71,7 +72,7 @@ class Server(object):
         tcp_socket.listen(constants.MAX_QUEUED_CONNECTIONS)
         tcp_socket.settimeout(constants.SERVER_LOOP_TIMEOUT)
 
-        while constants.SERVER_END_MESSAGE not in self.message_queue:
+        while not self.close_server:
             try:
                 c, addr = tcp_socket.accept()
             except timeout:

@@ -47,26 +47,22 @@ class Client(object):
             udp_port = int(req_code_response)
 
         # The client sends a message "GET", over UDP, to the server
-        s = socket(AF_INET, SOCK_DGRAM)
-        s.sendto(constants.GET_MESSAGE.encode(), (self.addr, udp_port))
+        s_udp = socket(AF_INET, SOCK_DGRAM)
+        s_udp.sendto(constants.GET_MESSAGE.encode(), (self.addr, udp_port))
 
         # The server should then send all stored messages over UDP to the client.
-        serverAddress = ("", "")
-        while serverAddress[0] != self.addr:
-            messages, serverAddress = s.recvfrom(constants.BUFFER_SIZE)
-
-        messages = messages.decode()
-
-        # The client will display each message on its own line.
-        for message in messages.split(constants.MESSAGE_DELIMETER):
-            print(message)
+        message = ""
+        while message != constants.SERVER_DONE_MESSAGES:
+            message, _ = s_udp.recvfrom(constants.BUFFER_SIZE)
+            print(message.decode())
 
         # The client sends its text message, over UDP, to the Server
-        s.sendto(self.msg.encode(), (self.addr, udp_port))
-        s.close()
+        s_udp.sendto(self.msg.encode(), (self.addr, udp_port))
 
         # The client waits for keyboard input before exiting.        #
-        raw_input(constants.KEYBOARD_MESSAGE_EXIT)
+        _ = raw_input(constants.KEYBOARD_MESSAGE_EXIT)
+        s.close()
+        s_udp.close()
         return True
 
 def main():
