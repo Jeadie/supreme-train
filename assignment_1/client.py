@@ -66,12 +66,15 @@ class Client(object):
         return True
 
 def main():
+    # Parse arguments
     parser = ArgumentParser(description='Client')
     parser.add_argument("address", type=str, help="The address of the server to connect to.")
     parser.add_argument("port", type=int, help="The port of the server to connect to.")
     parser.add_argument("req_code", type=str, help="The request code to use.")
     parser.add_argument("message", type=str,help="The message to send to the server.")
     args = parser.parse_args()
+
+    # Run Client
     client = Client(args.address, args.port, args.req_code, args.message)
     client.run()
 

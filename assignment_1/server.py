@@ -18,7 +18,13 @@ class Server(object):
         self.req_code = req_code
 
     def udp_server(self, tcp_conn, udp_port):
+        """ A single UDP socket thread for a communication between server and client
+            via UDP.
 
+        Args:
+            tcp_conn: A TCP connection opened by the main process.
+            udp_port: The port for the client to send/recv wuth the server on, via UDP.
+        """
 
         # Connect to UDP port
         udp_s = socket(AF_INET, SOCK_DGRAM)
@@ -55,7 +61,7 @@ class Server(object):
         print("SERVER_PORT=" + str(port))
 
     def run(self):
-        """
+        """ Main server thread to run the TCP socket and create subsequent UDP threads.
 
         Returns:
             True if the server ran successfully, False otherwise.
@@ -100,12 +106,15 @@ class Server(object):
         tcp_socket.close()
 
 def main():
+    # Parse arguments
     parser = ArgumentParser(description='Server')
     parser.add_argument("req_code", type=str, help="The request code to use.")
     args = parser.parse_args()
 
+    # Get IP address
     addr = gethostbyname(gethostname())
-    print(addr)
+
+    # Run Server
     server = Server(addr, args.req_code)
     server.run()
 
