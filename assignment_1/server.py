@@ -1,18 +1,20 @@
 from argparse import ArgumentParser
 import random
-from socket import socket, AF_INET, SOCK_STREAM, SOCK_DGRAM, timeout
+from socket import socket, AF_INET, SOCK_STREAM, SOCK_DGRAM, timeout, gethostbyname, gethostname
 import threading
 
 import constants
 
 class Server(object):
 
-    def __init__(self, req_code):
+    def __init__(self, addr, req_code):
         """ Constructor.
 
         Args:
             req_code: The request code to use.
+            addr: The IP address to run the server sockets on. 
         """
+        self.addr = addr
         self.req_code = req_code
 
     def udp_server(self, tcp_conn, udp_port):
@@ -20,7 +22,7 @@ class Server(object):
 
         # Connect to UDP port
         udp_s = socket(AF_INET, SOCK_DGRAM)
-        udp_s.bind(('', udp_port))
+        udp_s.bind((self.addr, udp_port))
 
         # Send UDP port name to client over initial TCP connection
         tcp_conn.send(str(udp_port))
@@ -43,7 +45,7 @@ class Server(object):
             else:
                 if message == constants.SERVER_END_MESSAGE:
                     self.close_server = True
-                self.message_queue.append("[{0}]: {1}".format(udp_port, message))
+                self.message_queue.append("[{0}]: {1}".format(addr[-1], message))
             recv_count += 1
 
         # Remove udp_port from list.
@@ -67,7 +69,7 @@ class Server(object):
         # Create TCP Connection on random port above 1024
         tcp_socket = socket(AF_INET, SOCK_STREAM)
         port = random.randint(1025, 65534)
-        tcp_socket.bind(("", port))
+        tcp_socket.bind((self.addr, port))
         self.print_port(port)
         tcp_socket.listen(constants.MAX_QUEUED_CONNECTIONS)
         tcp_socket.settimeout(constants.SERVER_LOOP_TIMEOUT)
@@ -102,7 +104,9 @@ def main():
     parser.add_argument("req_code", type=str, help="The request code to use.")
     args = parser.parse_args()
 
-    server = Server(args.req_code)
+    addr = gethostbyname(gethostname())
+    print(addr)
+    server = Server(addr, args.req_code)
     server.run()
 
 if __name__ == "__main__":
