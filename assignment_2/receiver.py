@@ -7,7 +7,7 @@ from packet import packet
 
 class Receiver(object):
     # TODO: Need to implement modulo sequence numbers
-    
+
     def __init__(self, hostname: str, ack_port: int, data_port: int, filename: str):
         """
 
@@ -47,7 +47,7 @@ class Receiver(object):
         Returns:
             The parsed packet object of the most recent message.
         """
-        message, _ = socket.recvfrom(constants.BUFFER_SIZE)
+        message, _ = socket.recvfrom(constants.PACKET_DATA_SIZE)
         packet.parse_udp_data(message)
 
         if packet.type == constants.TYPE_EOT:
@@ -100,7 +100,7 @@ def main():
     args = parser.parse_args()
 
     # Run Receiver
-    receiver = Receiver(args.address, args.port, args.req_code, args.message)
+    receiver = Receiver(args.hostname, args.ack_port, args.data_port, args.filename)
     receiver.run()
 
 
