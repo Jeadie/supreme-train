@@ -1,9 +1,13 @@
 from argparse import ArgumentParser
 from socket import socket, AF_INET, SOCK_DGRAM
+import time
+from threading import Thread
+
+from packet import packet
 
 import constants
-import time
-from packet import packet
+from window import Window
+
 
 class Sender(object):
     # TODO: Need to implement modulo sequence numbers
@@ -22,15 +26,7 @@ class Sender(object):
         self.data_port = data_port
         self.filename = filename
         self.seq_num = 0
-
-    def send_data(self, seq_num: int):
-        """ Sends a data packet based on the sequence number.
-
-        Args:
-            seq_num: Sequence number of the packet to mention in the ACK.
-        """
-        socket(AF_INET, SOCK_DGRAM).sendto(packet.create_ack(seq_num).get_udp_data(),
-                                           (self.hostname, self.ack_port))
+        self.eot = False
 
     def send_EOT(self, seq_num):
         """ Sends an EOT packet.
@@ -38,24 +34,42 @@ class Sender(object):
         socket(AF_INET, SOCK_DGRAM).sendto(packet.create_eot(seq_num).get_udp_data(),
                                            (self.hostname, self.ack_port))
 
+    def ack_recv_thread_func(self):
+        ack_socket = socket(AF_INET, SOCK_DGRAM)
+
+        while not self.eot:
+            data = ack_socket.recvfrom(constants.ACK_BUFFER_SIZE)
+            p = packet.parse_udp_data(data)
+
+            if p.type == constants.TYPE_ACK:
+                print(f"[RECEIVER] - Received ack with seq: {p.seq_num}")
+                self.seq_num = p.seq_num + 1
+
+            if p.type == constants.TYPE_EOT:
+                self.send_EOT(self.seq_num)
+                self.eot = True
+
     def run(self):
         """ Main thread for running the sender.
         """
         # Start thread listening for ACKS.
-
+        t = Thread(target=self.ack_recv_thread_func).start()
 
         # Create Window and start thread to send data.
-        window = Window(constants.WINDOW_SIZE, self.filename, constants.TIMEOUT_VALUE)
+        window = Window(constants.WINDOW_SIZE, self.filename)
         with open(self.filename, "r") as f:
             data  = f.read(constants.BUFFER_SIZE)
             while data:
                 if not window.is_full():
-                    window.add_data(data)
+                    window.add_data(data, (self.hostname, self.data_port))
                 elif window.has_timeout():
-                    window.resend_all()
+                    window.resend_all((self.hostname, self.data_port))
                 else:
-                    window.update_sequence_number(self.seq_num)
+                    window.update_base_number(self.seq_num)
                     time.sleep(constants.SENDER_SLEEP) # update the window based on ACK thread.
+
+        while not self.eot:
+            time.sleep(constants.SENDER_SLEEP)
 
 
 def main():

@@ -22,6 +22,7 @@ class Receiver(object):
         self.data_port = data_port
         self.filename = filename
         self.seq_num = 0
+        print(ack_port, data_port)
 
     def send_ack(self, seq_num: int):
         """ Sends an ACK packet for a sequence number.
@@ -47,26 +48,29 @@ class Receiver(object):
         Returns:
             The parsed packet object of the most recent message.
         """
-        message, _ = socket.recvfrom(constants.PACKET_DATA_SIZE)
-        packet.parse_udp_data(message)
-
-        if packet.type == constants.TYPE_EOT:
-            return packet
-        elif packet.type == constants.TYPE_ACK:
+        print("IN HANDLE MESSGAGE")
+        message, _ = socket.recvfrom(1) #constants.PACKET_DATA_SIZE)
+        print("S")
+        p = packet.parse_udp_data(message)
+        print(f"[RECEIVER] - received packet with no: {p.seq_num}")
+      
+        if p.type == constants.TYPE_EOT:
+            return p
+        elif p.type == constants.TYPE_ACK:
             # Should not happend
-            return packet
+            return p
 
-        # Else data message
-        if packet.seq_num == self.seq_num + 1:
+       # Else data message
+        if p.seq_num == self.seq_num + 1:
             # Expected, next packet
-            data = packet.get_udp_data()
+            data = p.get_udp_data()
 
             with open(self.filename, "a") as f:
                 f.write(data)
             self.seq_num +=1
 
         self.send_ack(self.seq_num)
-        return packet
+        return p
 
     def run(self):
         """ Main thread for running a receiver.
@@ -81,6 +85,7 @@ class Receiver(object):
         packet = self.handle_message(data_socket)
         while packet.type != constants.EOT:
             packet = self.handle_message(data_socket)
+            time.sleep(0.1)
 
         # Send EOT back
         self.send_EOT()
