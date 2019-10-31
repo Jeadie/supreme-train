@@ -1,8 +1,12 @@
 from argparse import ArgumentParser
 from socket import socket, AF_INET, SOCK_DGRAM
+import time
 
 import constants
 from packet import packet
+import log
+
+logger = log.configure_receiver_logger("receiver", info_stdout=True)
 
 
 class Receiver(object):
@@ -22,7 +26,6 @@ class Receiver(object):
         self.data_port = data_port
         self.filename = filename
         self.seq_num = 0
-        print(ack_port, data_port)
 
     def send_ack(self, seq_num: int):
         """ Sends an ACK packet for a sequence number.
@@ -48,16 +51,16 @@ class Receiver(object):
         Returns:
             The parsed packet object of the most recent message.
         """
-        print("IN HANDLE MESSGAGE")
-        message, _ = socket.recvfrom(1) #constants.PACKET_DATA_SIZE)
-        print("S")
+        message, _ = socket.recvfrom(constants.PACKET_DATA_SIZE)
         p = packet.parse_udp_data(message)
-        print(f"[RECEIVER] - received packet with no: {p.seq_num}")
+        logger.info(f"Received packet with no: {p.seq_num}")
       
         if p.type == constants.TYPE_EOT:
+            logger.info("Received EOT.")
             return p
+
         elif p.type == constants.TYPE_ACK:
-            # Should not happend
+            # Should not happened
             return p
 
        # Else data message
@@ -66,10 +69,11 @@ class Receiver(object):
             data = p.get_udp_data()
 
             with open(self.filename, "a") as f:
-                f.write(data)
-            self.seq_num +=1
+                f.write(p.data)
+            self.seq_num += 1
 
         self.send_ack(self.seq_num)
+        logger.info(f"Sending ACK with no: {self.seq_num}")
         return p
 
     def run(self):
@@ -80,10 +84,11 @@ class Receiver(object):
 
         # Setup UDP port for receiving data
         data_socket = socket(AF_INET, SOCK_DGRAM)
+        data_socket.bind((self.hostname, self.data_port))
 
         # do-while handling packets until it receives EOT
         packet = self.handle_message(data_socket)
-        while packet.type != constants.EOT:
+        while packet.type != constants.TYPE_EOT:
             packet = self.handle_message(data_socket)
             time.sleep(0.1)
 

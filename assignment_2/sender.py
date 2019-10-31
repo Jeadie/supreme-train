@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+import datetime
 from socket import socket, AF_INET, SOCK_DGRAM
 import time
 from threading import Thread
@@ -6,8 +7,10 @@ from threading import Thread
 from packet import packet
 
 import constants
+import log
 from window import Window
 
+logger = log.configure_sender_logger("sender", info_stdout=True)
 
 class Sender(object):
     # TODO: Need to implement modulo sequence numbers
@@ -25,7 +28,7 @@ class Sender(object):
         self.ack_port = ack_port
         self.data_port = data_port
         self.filename = filename
-        self.seq_num = 0
+        self.next_seq_num = 0
         self.eot = False
 
     def send_EOT(self, seq_num):
@@ -33,21 +36,29 @@ class Sender(object):
         """
         socket(AF_INET, SOCK_DGRAM).sendto(packet.create_eot(seq_num).get_udp_data(),
                                            (self.hostname, self.ack_port))
+        logger.info(f"Sent EOT with: {seq_num}.")
 
     def ack_recv_thread_func(self):
         ack_socket = socket(AF_INET, SOCK_DGRAM)
+        ack_socket.bind((self.hostname, self.ack_port))
 
         while not self.eot:
-            data = ack_socket.recvfrom(constants.ACK_BUFFER_SIZE)
-            p = packet.parse_udp_data(data)
+            try:
+                data, port = ack_socket.recvfrom(constants.ACK_BUFFER_SIZE)
 
-            if p.type == constants.TYPE_ACK:
-                print(f"[RECEIVER] - Received ack with seq: {p.seq_num}")
-                self.seq_num = p.seq_num + 1
+                p = packet.parse_udp_data(data)
 
-            if p.type == constants.TYPE_EOT:
-                self.send_EOT(self.seq_num)
-                self.eot = True
+                if p.type == constants.TYPE_ACK:
+                    logger.info(f"Received ack with seq: {p.seq_num}")
+                    logger.ack(p.seq_num)
+                    self.next_seq_num = p.seq_num + 1
+
+                if p.type == constants.TYPE_EOT:
+                    self.eot = True
+                    logger.info("Received EOT.")
+
+            except TypeError as e:
+                logger.info(f"Received data that could not be processed: {data.decode()}.")
 
     def run(self):
         """ Main thread for running the sender.
@@ -56,20 +67,30 @@ class Sender(object):
         t = Thread(target=self.ack_recv_thread_func).start()
 
         # Create Window and start thread to send data.
-        window = Window(constants.WINDOW_SIZE, self.filename)
+        window = Window(constants.WINDOW_SIZE, self.filename, logger)
         with open(self.filename, "r") as f:
+            start = datetime.datetime.now()
             data  = f.read(constants.BUFFER_SIZE)
             while data:
                 if not window.is_full():
                     window.add_data(data, (self.hostname, self.data_port))
+                    data = f.read(constants.BUFFER_SIZE)
                 elif window.has_timeout():
+
                     window.resend_all((self.hostname, self.data_port))
                 else:
-                    window.update_base_number(self.seq_num)
-                    time.sleep(constants.SENDER_SLEEP) # update the window based on ACK thread.
+                    time.sleep(constants.SENDER_SLEEP/5) # update the window based on ACK thread.
+                window.update_base_number(self.next_seq_num)
 
+        logger.info(f"Ending transmission. {self.eot}")
+
+        self.send_EOT(window.seq_number)
         while not self.eot:
             time.sleep(constants.SENDER_SLEEP)
+
+        transmission_time = 1000 * (datetime.datetime.now() - start).total_seconds()
+        logger.time(transmission_time)
+        logger.info("Done.")
 
 
 def main():

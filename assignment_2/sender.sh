@@ -1,1 +1,1 @@
-python sender.py 0.0.0.0 10000 10002  small.txt
+python sender.py 127.0.0.1 10000 10002  tiny.txt

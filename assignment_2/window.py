@@ -1,4 +1,5 @@
 import datetime
+import logging
 from typing import Tuple
 from socket import socket, AF_INET, SOCK_DGRAM
 
@@ -6,10 +7,13 @@ from packet import packet
 
 import constants
 
+logging.basicConfig(format="[%(name)s:%(levelname)s] %(message)s")
+logger = logging.getLogger('window')
+
 
 class Window(object):
 
-    def __init__(self, size, filename: str,
+    def __init__(self, size, filename: str, logger: logging.Logger,
                  timeout: datetime.timedelta = datetime.timedelta(
                      milliseconds=constants.TIMEOUT_VALUE)):
         """
@@ -22,6 +26,7 @@ class Window(object):
         self.size = size
         self.filename = filename
         self.d_timeout = timeout
+        self.seq_logger = logger
         self.window = []
         self.seq_number = 0
         self.base_number = 0
@@ -46,7 +51,8 @@ class Window(object):
         socket(AF_INET, SOCK_DGRAM).sendto(
             packet.create_packet(self.seq_number, data).get_udp_data(),
             addr)
-        print(f"[SENDER] - Sent packet with no: {self.seq_number}")
+        self.seq_logger.sequence(self.seq_number)
+        logger.info(f"Sent packet with no: {self.seq_number}")
         self.window.append((self.seq_number, data))
         self.seq_number += 1
 
@@ -67,9 +73,10 @@ class Window(object):
         """
         for w in self.window:
             num, data = w
-            #socket(AF_INET, SOCK_DGRAM).sendto(
+            # self.seq_logger.sequence(num)
+            # socket(AF_INET, SOCK_DGRAM).sendto(
             #    packet.create_packet(num, data).get_udp_data(), addr)
-            # print(f"[SENDER] - Sent packet with no: {num}")
+            # logger.info(f"Sent packet with no: {num}")
 
     def update_base_number(self, next_seq_num):
         """ Updates the base number

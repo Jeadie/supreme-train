@@ -1,10 +1,10 @@
 emulator_receive_sender_port=10000
-receiver_address=0.0.0.0
+receiver_address=127.0.0.1
 receiver_receive_port=10001
 emulator_receive_receiver_port=10003
-sender_address=0.0.0.0
+sender_address=127.0.0.1
 sender_receive_port=10002
-max_delay=0
+max_delay=1
 p_discard=0
 verbose=1
 
