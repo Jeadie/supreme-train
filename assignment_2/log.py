@@ -1,30 +1,10 @@
 import logging
 import sys
-from typing import Callable
-
-import constants
-
-
-def construct_log_level_func(self, log_number) -> Callable:
-    """ Constructs a log function for a single log level.
-
-    Args:
-        log_number: The log number
-
-    Returns:
-        A logging function for a given log number.
-    """
-
-    def log_func(message, *args, **kws):
-        if self.isEnabledFor(log_number):
-            self._log(log_number, message, args, **kws)
-
-    return log_func
 
 
 def configure_sender_logger(name, sequence_log="seqnum.log", ack_log="ack.log",
                             time_log: str = "time.log​",
-                            info_stdout: bool = False) -> logging.Logger:
+                            info_stdout: bool = False):
     """ Configures
 
     Args:
@@ -37,40 +17,52 @@ def configure_sender_logger(name, sequence_log="seqnum.log", ack_log="ack.log",
     Returns:
         A Logger configured with separate sequence, ack and time logs.
     """
-    _logger = logging.getLogger(name)
+    class SenderLogger(object):
 
-    if info_stdout:
-        stdout_handler = logging.StreamHandler(stream=sys.stdout)
-        stdout_handler.setLevel(logging.INFO)
-        _logger.addHandler(stdout_handler)
+        def __init__(self):
+            self._sequence = logging.getLogger(f"{name}-sequence")
+            self._ack = logging.getLogger(f"{name}-ack")
+            self._time = logging.getLogger(f"{name}-time")
+            self._sequence.setLevel(logging.INFO)
+            self._ack.setLevel(logging.INFO)
+            self._time.setLevel(logging.INFO)
 
-    logging.addLevelName(constants.SEQUENCE_LOG_NUM, "SEQUENCE")
-    logging.addLevelName(constants.ACK_LOG_NUM, "ACK")
-    logging.addLevelName(constants.TIME_LOG_NUM, "TIME")
+            # Add log file handlers
+            seq_file = logging.FileHandler(sequence_log)
+            seq_file.setLevel(logging.INFO)
+            self._sequence.addHandler(seq_file)
 
-    # Add specific logger functions to logger
-    _logger.sequence = construct_log_level_func(_logger, constants.SEQUENCE_LOG_NUM)
-    _logger.ack = construct_log_level_func(_logger, constants.ACK_LOG_NUM)
-    _logger.time = construct_log_level_func(_logger, constants.TIME_LOG_NUM)
+            ack_file = logging.FileHandler(ack_log)
+            ack_file.setLevel(logging.INFO)
+            self._ack.addHandler(ack_file)
 
-    # Add file handlers for sequence, ack & time
-    seq_file = logging.FileHandler(sequence_log)
-    seq_file.setLevel(constants.SEQUENCE_LOG_NUM)
-    _logger.addHandler(seq_file)
+            time_file = logging.FileHandler(time_log)
+            time_file.setLevel(logging.INFO)
+            self._time.addHandler(time_file)
 
-    ack_file = logging.FileHandler(ack_log)
-    ack_file.setLevel(constants.ACK_LOG_NUM)
-    _logger.addHandler(ack_file)
+            if info_stdout:
+                self._log = logging.Logger(f"{name}-log")
+                stdout_handler = logging.StreamHandler(stream=sys.stdout)
+                stdout_handler.setLevel(logging.INFO)
+                self._log.addHandler(stdout_handler)
 
-    time_file = logging.FileHandler(time_log)
-    time_file.setLevel(constants.TIME_LOG_NUM)
-    _logger.addHandler(time_file)
+        def log(self, msg):
+            self._log.info(f"[SENDER] - {msg}")
 
-    return _logger
+        def ack(self, msg):
+            self._ack.info(msg)
+
+        def sequence(self, msg):
+            self._sequence.info(msg)
+
+        def time(self, msg):
+            self._time.info(msg)
+
+    return SenderLogger()
 
 
 def configure_receiver_logger(name: str, arrival_log: str="arrival.log",
-                              info_stdout: bool = False) -> logging.Logger:
+                              info_stdout: bool = False):
     """ Configures the receiver's logger to send
 
     Args:
@@ -81,19 +73,25 @@ def configure_receiver_logger(name: str, arrival_log: str="arrival.log",
     Returns:
         A Logger configured with separate sequence, ack and time logs.
     """
-    _logger = logging.getLogger(name)
 
-    # info -> stdout
-    if info_stdout:
-        stdout_handler = logging.StreamHandler(stream=sys.stdout)
-        stdout_handler.setLevel(logging.INFO)
-        _logger.addHandler(stdout_handler)
+    class ReceiverLogger(object):
 
-    logging.addLevelName(constants.ARRIVAL_LOG_NUM, "ARRIVAL")
+        def __init__(self):
+            self._arrival = logging.Logger(f"{name}-arrival")
+            arrival_file = logging.FileHandler(arrival_log)
+            arrival_file.setLevel(logging.INFO)
+            self._arrival.addHandler(arrival_file)
 
-    # Add handler for arrival log
-    _logger.arrival = construct_log_level_func(_logger, constants.ARRIVAL_LOG_NUM)
-    arrival_file = logging.FileHandler(arrival_log)
-    arrival_file.setLevel(constants.ARRIVAL_LOG_NUM)
-    _logger.addHandler(arrival_file)
-    return _logger
+            if info_stdout:
+                self._log = logging.Logger(f"{name}-log")
+                stdout_handler = logging.StreamHandler(stream=sys.stdout)
+                stdout_handler.setLevel(logging.INFO)
+                self._log.addHandler(stdout_handler)
+
+        def log(self, msg):
+            self._log.info(f"[RECEIVER] - {msg}")
+
+        def arrival(self, msg):
+            self._arrival.info(msg)
+
+    return ReceiverLogger()

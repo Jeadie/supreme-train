@@ -53,10 +53,10 @@ class Receiver(object):
         """
         message, _ = socket.recvfrom(constants.PACKET_DATA_SIZE)
         p = packet.parse_udp_data(message)
-        logger.info(f"Received packet with no: {p.seq_num}")
+        logger.log(f"Received packet with no: {p.seq_num}")
       
         if p.type == constants.TYPE_EOT:
-            logger.info("Received EOT.")
+            logger.log("Received EOT.")
             return p
 
         elif p.type == constants.TYPE_ACK:
@@ -64,16 +64,17 @@ class Receiver(object):
             return p
 
        # Else data message
-        if p.seq_num == self.seq_num + 1:
+        logger.arrival(p.seq_num)
+        if p.seq_num == (self.seq_num + 1) % constants.MODULO_RANGE:
             # Expected, next packet
             data = p.get_udp_data()
 
             with open(self.filename, "a") as f:
                 f.write(p.data)
-            self.seq_num += 1
+            self.seq_num = (self.seq_num + 1) % constants.MODULO_RANGE
 
         self.send_ack(self.seq_num)
-        logger.info(f"Sending ACK with no: {self.seq_num}")
+        logger.log(f"Sending ACK with no: {self.seq_num}")
         return p
 
     def run(self):
@@ -93,7 +94,7 @@ class Receiver(object):
             time.sleep(0.1)
 
         # Send EOT back
-        self.send_EOT()
+        self.send_EOT(packet.seq_num)
 
 
 def main():

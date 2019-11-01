@@ -28,15 +28,15 @@ class Sender(object):
         self.ack_port = ack_port
         self.data_port = data_port
         self.filename = filename
-        self.next_seq_num = 0
+        self.next_seq_num = 1
         self.eot = False
 
     def send_EOT(self, seq_num):
         """ Sends an EOT packet.
         """
         socket(AF_INET, SOCK_DGRAM).sendto(packet.create_eot(seq_num).get_udp_data(),
-                                           (self.hostname, self.ack_port))
-        logger.info(f"Sent EOT with: {seq_num}.")
+                                           (self.hostname, self.data_port))
+        logger.log(f"Sent EOT with: {seq_num}.")
 
     def ack_recv_thread_func(self):
         ack_socket = socket(AF_INET, SOCK_DGRAM)
@@ -49,16 +49,17 @@ class Sender(object):
                 p = packet.parse_udp_data(data)
 
                 if p.type == constants.TYPE_ACK:
-                    logger.info(f"Received ack with seq: {p.seq_num}")
+                    logger.log(f"Received ack with seq: {p.seq_num}")
                     logger.ack(p.seq_num)
                     self.next_seq_num = p.seq_num + 1
 
                 if p.type == constants.TYPE_EOT:
                     self.eot = True
-                    logger.info("Received EOT.")
+                    logger.log("Received EOT.")
 
             except TypeError as e:
-                logger.info(f"Received data that could not be processed: {data.decode()}.")
+                logger.log(
+                    f"Received data that could not be processed: {data.decode()}.")
 
     def run(self):
         """ Main thread for running the sender.
@@ -70,7 +71,7 @@ class Sender(object):
         window = Window(constants.WINDOW_SIZE, self.filename, logger)
         with open(self.filename, "r") as f:
             start = datetime.datetime.now()
-            data  = f.read(constants.BUFFER_SIZE)
+            data = f.read(constants.BUFFER_SIZE)
             while data:
                 if not window.is_full():
                     window.add_data(data, (self.hostname, self.data_port))
@@ -79,10 +80,11 @@ class Sender(object):
 
                     window.resend_all((self.hostname, self.data_port))
                 else:
-                    time.sleep(constants.SENDER_SLEEP/5) # update the window based on ACK thread.
+                    time.sleep(
+                        constants.SENDER_SLEEP / 5)  # update the window based on ACK thread.
                 window.update_base_number(self.next_seq_num)
 
-        logger.info(f"Ending transmission. {self.eot}")
+        logger.log(f"Ending transmission. {self.eot}")
 
         self.send_EOT(window.seq_number)
         while not self.eot:
@@ -90,7 +92,7 @@ class Sender(object):
 
         transmission_time = 1000 * (datetime.datetime.now() - start).total_seconds()
         logger.time(transmission_time)
-        logger.info("Done.")
+        logger.log("Done.")
 
 
 def main():

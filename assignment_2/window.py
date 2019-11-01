@@ -26,7 +26,7 @@ class Window(object):
         self.size = size
         self.filename = filename
         self.d_timeout = timeout
-        self.seq_logger = logger
+        self._logger = logger
         self.window = []
         self.seq_number = 0
         self.base_number = 0
@@ -35,7 +35,7 @@ class Window(object):
         """ Returns True if the window is full and more data cannot be added,
             False otherwise.
         """
-        return self.seq_number >= self.base_number + self.size
+        return len(self.window) >= self.size
 
     def add_data(self, data: str, addr: Tuple[str, int]):
         """ Adds and sends data to the window in the next available slot.
@@ -51,10 +51,11 @@ class Window(object):
         socket(AF_INET, SOCK_DGRAM).sendto(
             packet.create_packet(self.seq_number, data).get_udp_data(),
             addr)
-        self.seq_logger.sequence(self.seq_number)
-        logger.info(f"Sent packet with no: {self.seq_number}")
+        self._logger.sequence(self.seq_number)
+        self._logger.log(f"Sent packet with no: {self.seq_number}")
         self.window.append((self.seq_number, data))
-        self.seq_number += 1
+
+        self.seq_number = (self.seq_number + 1) % constants.MODULO_RANGE
 
     def has_timeout(self) -> True:
         """ Returns True if the current time is past the timer + timeout delta. False, Otherwise.
@@ -76,7 +77,7 @@ class Window(object):
             # self.seq_logger.sequence(num)
             # socket(AF_INET, SOCK_DGRAM).sendto(
             #    packet.create_packet(num, data).get_udp_data(), addr)
-            # logger.info(f"Sent packet with no: {num}")
+            # self._logger.log(f"Sent packet with no: {num}")
 
     def update_base_number(self, next_seq_num):
         """ Updates the base number
@@ -85,8 +86,18 @@ class Window(object):
             acked_seq_num: The new sequence number for the window.
         :return:
         """
-        self.base_number = next_seq_num
+        if next_seq_num == self.base_number:
+            return
+
+        # handle modulo
+        if next_seq_num > self.seq_number:
+            unacked = list(range(0, self.seq_number)) + list(range(next_seq_num, constants.MODULO_RANGE))
+        else:
+            unacked = list(range(next_seq_num, self.seq_number))
+
         for packet in self.window:
             num, data = packet
-            if num < self.base_number:
+            if num not in unacked:
                 self.window.remove(packet)
+
+        self.base_number = next_seq_num
