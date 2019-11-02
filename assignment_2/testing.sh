@@ -1,1 +1,1 @@
-sh receiver.sh & sh sender.sh
+sh receiver.sh $1 & sh sender.sh $1

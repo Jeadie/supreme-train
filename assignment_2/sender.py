@@ -10,7 +10,7 @@ import constants
 import log
 from window import Window
 
-logger = log.configure_sender_logger("sender", info_stdout=True)
+logger = log.configure_sender_logger("sender", time_log="testing.time.log",  info_stdout=True)
 
 class Sender(object):
     # TODO: Need to implement modulo sequence numbers
@@ -77,18 +77,23 @@ class Sender(object):
                     window.add_data(data, (self.hostname, self.data_port))
                     data = f.read(constants.BUFFER_SIZE)
                 elif window.has_timeout():
-
                     window.resend_all((self.hostname, self.data_port))
                 else:
-                    time.sleep(
-                        constants.SENDER_SLEEP / 5)  # update the window based on ACK thread.
+                    time.sleep(constants.PROCESS_WAIT)
                 window.update_base_number(self.next_seq_num)
 
-        logger.log(f"Ending transmission. {self.eot}")
+        logger.log(f"Ending transmission. {window.window}")
 
+        while len(window.window) > 0:
+            if window.has_timeout():
+                window.resend_all((self.hostname, self.data_port))
+            window.update_base_number(self.next_seq_num)
+            time.sleep(constants.PROCESS_WAIT)
+
+        logger.log(f"Finished sending remaining packets.")
         self.send_EOT(window.seq_number)
         while not self.eot:
-            time.sleep(constants.SENDER_SLEEP)
+            time.sleep(constants.PROCESS_WAIT)
 
         transmission_time = 1000 * (datetime.datetime.now() - start).total_seconds()
         logger.time(transmission_time)

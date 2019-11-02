@@ -7,10 +7,6 @@ from packet import packet
 
 import constants
 
-logging.basicConfig(format="[%(name)s:%(levelname)s] %(message)s")
-logger = logging.getLogger('window')
-
-
 class Window(object):
 
     def __init__(self, size, filename: str, logger: logging.Logger,
@@ -74,10 +70,10 @@ class Window(object):
         """
         for w in self.window:
             num, data = w
-            # self.seq_logger.sequence(num)
-            # socket(AF_INET, SOCK_DGRAM).sendto(
-            #    packet.create_packet(num, data).get_udp_data(), addr)
-            # self._logger.log(f"Sent packet with no: {num}")
+            self._logger.sequence(num)
+            socket(AF_INET, SOCK_DGRAM).sendto(
+               packet.create_packet(num, data).get_udp_data(), addr)
+            self._logger.log(f"Resent packet with no: {num}")
 
     def update_base_number(self, next_seq_num):
         """ Updates the base number
@@ -88,6 +84,7 @@ class Window(object):
         """
         if next_seq_num == self.base_number:
             return
+
 
         # handle modulo
         if next_seq_num > self.seq_number:

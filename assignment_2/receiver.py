@@ -52,7 +52,11 @@ class Receiver(object):
             The parsed packet object of the most recent message.
         """
         message, _ = socket.recvfrom(constants.PACKET_DATA_SIZE)
-        p = packet.parse_udp_data(message)
+        try:
+            p = packet.parse_udp_data(message)
+        except Exception as e:
+            logger.log(f"ERROR: {e}")
+            return None
         logger.log(f"Received packet with no: {p.seq_num}")
       
         if p.type == constants.TYPE_EOT:
@@ -65,15 +69,13 @@ class Receiver(object):
 
        # Else data message
         logger.arrival(p.seq_num)
-        if p.seq_num == (self.seq_num + 1) % constants.MODULO_RANGE:
+        if p.seq_num == (self.seq_num ): #% constants.MODULO_RANGE:
             # Expected, next packet
-            data = p.get_udp_data()
-
             with open(self.filename, "a") as f:
                 f.write(p.data)
             self.seq_num = (self.seq_num + 1) % constants.MODULO_RANGE
 
-        self.send_ack(self.seq_num)
+        self.send_ack(p.seq_num)
         logger.log(f"Sending ACK with no: {self.seq_num}")
         return p
 
@@ -91,7 +93,7 @@ class Receiver(object):
         packet = self.handle_message(data_socket)
         while packet.type != constants.TYPE_EOT:
             packet = self.handle_message(data_socket)
-            time.sleep(0.1)
+            time.sleep(constants.PROCESS_WAIT)
 
         # Send EOT back
         self.send_EOT(packet.seq_num)
