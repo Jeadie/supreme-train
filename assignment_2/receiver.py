@@ -92,7 +92,9 @@ class Receiver(object):
         # do-while handling packets until it receives EOT
         packet = self.handle_message(data_socket)
         while packet.type != constants.TYPE_EOT:
-            packet = self.handle_message(data_socket)
+            new_packet = self.handle_message(data_socket)
+            if new_packet:
+                packet = new_packet
             time.sleep(constants.PROCESS_WAIT)
 
         # Send EOT back
