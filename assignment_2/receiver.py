@@ -57,7 +57,7 @@ class Receiver(object):
         except Exception as e:
             logger.log(f"ERROR: {e}")
             return None
-        logger.log(f"Received packet with no: {p.seq_num}")
+        logger.log(f"Received packet with no: {p.seq_num}. Looking for {self.seq_num+1}")
       
         if p.type == constants.TYPE_EOT:
             logger.log("Received EOT.")
@@ -65,18 +65,21 @@ class Receiver(object):
 
         elif p.type == constants.TYPE_ACK:
             # Should not happened
+            logger.log("[ERROR] Received ACK.")
             return p
 
        # Else data message
         logger.arrival(p.seq_num)
-        if p.seq_num == (self.seq_num ): #% constants.MODULO_RANGE:
+        if p.seq_num == (self.seq_num +1) % constants.MODULO_RANGE:
             # Expected, next packet
             with open(self.filename, "a") as f:
                 f.write(p.data)
-            self.seq_num = (self.seq_num + 1) % constants.MODULO_RANGE
-
-        self.send_ack(p.seq_num)
-        logger.log(f"Sending ACK with no: {self.seq_num}")
+            self.send_ack(self.seq_num)
+            logger.log(f"Sending ACK for good packet with no: {self.seq_num+1}")
+            self.seq_num = p.seq_num # (self.seq_num + 1) % constants.MODULO_RANGE
+        else:
+            self.send_ack(self.seq_num)
+            logger.log(f"Sending ACK for bad packet with no: {self.seq_num}")
         return p
 
     def run(self):

@@ -13,7 +13,6 @@ from window import Window
 logger = log.configure_sender_logger("sender", time_log="testing.time.log",  info_stdout=True)
 
 class Sender(object):
-    # TODO: Need to implement modulo sequence numbers
 
     def __init__(self, hostname: str, ack_port: int, data_port: int, filename: str):
         """ Constructor.
@@ -28,7 +27,7 @@ class Sender(object):
         self.ack_port = ack_port
         self.data_port = data_port
         self.filename = filename
-        self.next_seq_num = 1
+        self.next_seq_num = 0
         self.eot = False
 
     def send_EOT(self, seq_num):
@@ -51,7 +50,8 @@ class Sender(object):
                 if p.type == constants.TYPE_ACK:
                     logger.log(f"Received ack with seq: {p.seq_num}")
                     logger.ack(p.seq_num)
-                    self.next_seq_num = p.seq_num + 1
+                    self.next_seq_num = p.seq_num
+                    self.window.update_base_number(self.next_seq_num)
 
                 if p.type == constants.TYPE_EOT:
                     self.eot = True
@@ -69,6 +69,7 @@ class Sender(object):
 
         # Create Window and start thread to send data.
         window = Window(constants.WINDOW_SIZE, self.filename, logger)
+        self.window = window
         with open(self.filename, "r") as f:
             start = datetime.datetime.now()
             data = f.read(constants.BUFFER_SIZE)
@@ -80,14 +81,14 @@ class Sender(object):
                     window.resend_all((self.hostname, self.data_port))
                 else:
                     time.sleep(constants.PROCESS_WAIT)
-                window.update_base_number(self.next_seq_num)
+                # window.update_base_number(self.next_seq_num)
 
         logger.log(f"Ending transmission. {window.window}")
 
-        while len(window.window) > 0:
+        while not window.finished(self.next_seq_num):
             if window.has_timeout():
                 window.resend_all((self.hostname, self.data_port))
-            window.update_base_number(self.next_seq_num)
+            # window.update_base_number(self.next_seq_num)
             time.sleep(constants.PROCESS_WAIT)
 
         logger.log(f"Finished sending remaining packets.")
