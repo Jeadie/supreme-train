@@ -57,7 +57,7 @@ class Receiver(object):
         except Exception as e:
             logger.log(f"ERROR: {e}")
             return None
-        logger.log(f"Received packet with no: {p.seq_num}. Looking for {self.seq_num+1}")
+        logger.log(f"Received packet with no: {p.seq_num}. Looking for {(self.seq_num+1)% constants.MODULO_RANGE}")
       
         if p.type == constants.TYPE_EOT:
             logger.log("Received EOT.")

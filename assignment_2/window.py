@@ -83,6 +83,7 @@ class Window(object):
                 socket(AF_INET, SOCK_DGRAM).sendto(
                    packet.create_packet(num, data).get_udp_data(), addr)
                 self._logger.log(f"Resent packet with no: {num}")
+        self.reset_timer()
 
     def update_base_number(self, next_seq_num):
         """ Updates the base number

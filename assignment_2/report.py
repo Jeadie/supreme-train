@@ -11,7 +11,7 @@ class ReportTesting(object):
         (20, 0.1), (20, 0.2), (20, 0.3), (40, 0.1), (40, 0.2), (40, 0.3)
     ]
 
-    FILE_SIZES = ["small.txt", "medium.txt", "large.txt"]
+    FILE_SIZES = ["large.txt"] # mall.txt", "medium.txt"] # , "large.txt"]
     ATTEMPT_COUNT = 3
     TIME_LOG = "testing.time.log"
     def __init__(self):
@@ -45,9 +45,9 @@ class ReportTesting(object):
                 print(f"Run testing for {f}")
                 with open(ReportTesting.TIME_LOG, "r") as f:
                     data = f.readlines()
-
                 average = sum([float(d[:-1]) for d in data]) / ReportTesting.ATTEMPT_COUNT
                 os.remove(ReportTesting.TIME_LOG)
+                print(f"TIME: {average}")
                 file_averages.append(average)
             # network.kill()
             self.results[(delay, discard_prob)] = file_averages

@@ -94,6 +94,9 @@ class Sender(object):
         logger.log(f"Finished sending remaining packets.")
         self.send_EOT(window.seq_number)
         while not self.eot:
+            if window.has_timeout():
+                self.send_EOT(window.seq_number)  
+                window.reset_timer()
             time.sleep(constants.PROCESS_WAIT)
 
         transmission_time = 1000 * (datetime.datetime.now() - start).total_seconds()
