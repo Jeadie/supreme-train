@@ -6,11 +6,10 @@ import constants
 from packet import packet
 import log
 
-logger = log.configure_receiver_logger("receiver", info_stdout=True)
+logger = log.configure_receiver_logger("receiver", info_stdout=constants.PRINT_INFO)
 
 
 class Receiver(object):
-    # TODO: Need to implement modulo sequence numbers
 
     def __init__(self, hostname: str, ack_port: int, data_port: int, filename: str):
         """
@@ -57,8 +56,9 @@ class Receiver(object):
         except Exception as e:
             logger.log(f"ERROR: {e}")
             return None
-        logger.log(f"Received packet with no: {p.seq_num}. Looking for {(self.seq_num+1)% constants.MODULO_RANGE}")
-      
+        logger.log(f"Received packet with no: {p.seq_num}."
+                   f"Looking for {(self.seq_num + 1) % constants.MODULO_RANGE}")
+
         if p.type == constants.TYPE_EOT:
             logger.log("Received EOT.")
             return p
@@ -68,15 +68,15 @@ class Receiver(object):
             logger.log("[ERROR] Received ACK.")
             return p
 
-       # Else data message
+        # Else data message
         logger.arrival(p.seq_num)
-        if p.seq_num == (self.seq_num +1) % constants.MODULO_RANGE:
+        if p.seq_num == (self.seq_num + 1) % constants.MODULO_RANGE:
             # Expected, next packet
             with open(self.filename, "a") as f:
                 f.write(p.data)
             self.send_ack(self.seq_num)
-            logger.log(f"Sending ACK for good packet with no: {self.seq_num+1}")
-            self.seq_num = p.seq_num # (self.seq_num + 1) % constants.MODULO_RANGE
+            logger.log(f"Sending ACK for good packet with no: {self.seq_num + 1}")
+            self.seq_num = p.seq_num
         else:
             self.send_ack(self.seq_num)
             logger.log(f"Sending ACK for bad packet with no: {self.seq_num}")

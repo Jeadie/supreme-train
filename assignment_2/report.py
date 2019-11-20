@@ -11,7 +11,7 @@ class ReportTesting(object):
         (20, 0.1), (20, 0.2), (20, 0.3), (40, 0.1), (40, 0.2), (40, 0.3)
     ]
 
-    FILE_SIZES = ["large.txt"] # mall.txt", "medium.txt"] # , "large.txt"]
+    FILE_SIZES = ["small.txt"] # mall.txt", "medium.txt"] # , "large.txt"]
     ATTEMPT_COUNT = 3
     TIME_LOG = "testing.time.log"
     def __init__(self):

@@ -3,7 +3,7 @@ import sys
 
 
 def configure_sender_logger(name, sequence_log="seqnum.log", ack_log="ack.log",
-                            time_log: str = "time.log​",
+                            time_log: str = "time.log",
                             info_stdout: bool = False):
     """ Configures
 
@@ -17,6 +17,7 @@ def configure_sender_logger(name, sequence_log="seqnum.log", ack_log="ack.log",
     Returns:
         A Logger configured with separate sequence, ack and time logs.
     """
+
     class SenderLogger(object):
 
         def __init__(self):
@@ -40,6 +41,7 @@ def configure_sender_logger(name, sequence_log="seqnum.log", ack_log="ack.log",
             time_file.setLevel(logging.INFO)
             self._time.addHandler(time_file)
 
+            self.stdout = info_stdout
             if info_stdout:
                 self._log = logging.Logger(f"{name}-log")
                 stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -47,7 +49,8 @@ def configure_sender_logger(name, sequence_log="seqnum.log", ack_log="ack.log",
                 self._log.addHandler(stdout_handler)
 
         def log(self, msg):
-            self._log.info(f"[SENDER] - {msg}")
+            if self.stdout:
+                self._log.info(f"[SENDER] - {msg}")
 
         def ack(self, msg):
             self._ack.info(msg)
@@ -61,7 +64,7 @@ def configure_sender_logger(name, sequence_log="seqnum.log", ack_log="ack.log",
     return SenderLogger()
 
 
-def configure_receiver_logger(name: str, arrival_log: str="arrival.log",
+def configure_receiver_logger(name: str, arrival_log: str = "arrival.log",
                               info_stdout: bool = False):
     """ Configures the receiver's logger to send
 
@@ -81,7 +84,7 @@ def configure_receiver_logger(name: str, arrival_log: str="arrival.log",
             arrival_file = logging.FileHandler(arrival_log)
             arrival_file.setLevel(logging.INFO)
             self._arrival.addHandler(arrival_file)
-
+            self.stdout = info_stdout
             if info_stdout:
                 self._log = logging.Logger(f"{name}-log")
                 stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -89,7 +92,8 @@ def configure_receiver_logger(name: str, arrival_log: str="arrival.log",
                 self._log.addHandler(stdout_handler)
 
         def log(self, msg):
-            self._log.info(f"[RECEIVER] - {msg}")
+            if self.stdout:
+                self._log.info(f"[RECEIVER] - {msg}")
 
         def arrival(self, msg):
             self._arrival.info(msg)

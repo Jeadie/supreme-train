@@ -10,7 +10,8 @@ import constants
 import log
 from window import Window
 
-logger = log.configure_sender_logger("sender", time_log="testing.time.log",  info_stdout=True)
+logger = log.configure_sender_logger("sender", info_stdout=constants.PRINT_INFO)
+
 
 class Sender(object):
 
@@ -38,69 +39,80 @@ class Sender(object):
         logger.log(f"Sent EOT with: {seq_num}.")
 
     def ack_recv_thread_func(self):
+        """ Thread function for receiving client acks and updating window base
+        accordingly.
+
+        Also responsible for receiving EOT packets from client and changing state for
+        main thread.
+        """
         ack_socket = socket(AF_INET, SOCK_DGRAM)
         ack_socket.bind((self.hostname, self.ack_port))
 
         while not self.eot:
             try:
+                # Parse Packet
                 data, port = ack_socket.recvfrom(constants.ACK_BUFFER_SIZE)
-
                 p = packet.parse_udp_data(data)
 
+                # Packet is ACK
                 if p.type == constants.TYPE_ACK:
                     logger.log(f"Received ack with seq: {p.seq_num}")
                     logger.ack(p.seq_num)
                     self.next_seq_num = p.seq_num
                     self.window.update_base_number(self.next_seq_num)
 
+                # Packet is EOT
                 if p.type == constants.TYPE_EOT:
                     self.eot = True
                     logger.log("Received EOT.")
 
             except TypeError as e:
                 logger.log(
-                    f"Received data that could not be processed: {data.decode()}.")
+                    f"Received data that could not be processed: {e}.")
 
     def run(self):
         """ Main thread for running the sender.
         """
-        # Start thread listening for ACKS.
+        # Start thread listening for ACKs.
         t = Thread(target=self.ack_recv_thread_func).start()
 
         # Create Window and start thread to send data.
-        window = Window(constants.WINDOW_SIZE, self.filename, logger)
-        self.window = window
+        self.window = Window(constants.WINDOW_SIZE, logger)
+
+        # Read a Packet of data and attempt to send
         with open(self.filename, "r") as f:
             start = datetime.datetime.now()
             data = f.read(constants.BUFFER_SIZE)
             while data:
-                if not window.is_full():
-                    window.add_data(data, (self.hostname, self.data_port))
+                if not self.window.is_full():
+                    self.window.add_data(data, (self.hostname, self.data_port))
                     data = f.read(constants.BUFFER_SIZE)
-                elif window.has_timeout():
-                    window.resend_all((self.hostname, self.data_port))
+                elif self.window.has_timeout():
+                    self.window.resend_all((self.hostname, self.data_port))
                 else:
                     time.sleep(constants.PROCESS_WAIT)
-                # window.update_base_number(self.next_seq_num)
 
-        logger.log(f"Ending transmission. {window.window}")
+        logger.log(f"Ending transmission. {self.window.window}")
 
-        while not window.finished(self.next_seq_num):
-            if window.has_timeout():
-                window.resend_all((self.hostname, self.data_port))
-            # window.update_base_number(self.next_seq_num)
+        # Ensure all packets have been received by client
+        while not self.window.finished(self.next_seq_num):
+            if self.window.has_timeout():
+                self.window.resend_all((self.hostname, self.data_port))
             time.sleep(constants.PROCESS_WAIT)
 
         logger.log(f"Finished sending remaining packets.")
-        self.send_EOT(window.seq_number)
+
+        # Send and wait on EOT
+        self.send_EOT(self.window.seq_number)
         while not self.eot:
-            if window.has_timeout():
-                self.send_EOT(window.seq_number)  
-                window.reset_timer()
+            if self.window.has_timeout():
+                self.send_EOT(self.window.seq_number)
+                self.window.reset_timer()
             time.sleep(constants.PROCESS_WAIT)
 
+        # Log Transmission Time
         transmission_time = 1000 * (datetime.datetime.now() - start).total_seconds()
-        logger.time(transmission_time)
+        logger.time(str(transmission_time))
         logger.log("Done.")
 
 
