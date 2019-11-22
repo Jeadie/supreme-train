@@ -48,30 +48,33 @@ class Tracker(object):
 
         while constants.FOREVER:
             try:
-                c, addr = self.sock.accept()
+                conn, addr = socket.accept()
+                # Thread only expect a single client.
+                socket.close()
                 break
             except timeout:
                 # Repeat indefinitely.
                 continue
 
-        self.queuey.add_peer(peerId, addr)
+        # Get the IP & port that other peers can connect with
+        peer_addr, port = utils.parse_new_peer_message(conn.recv())
+        self.queuey.add_peer(peerId, (peer_addr, port))
 
         # Get Filename and sizefrom client
-        filename, chunks = socket.recv().split(constants.MESSAGE_SEPARATOR, 1)
-        try:
-            chunks = int(chunks)
-        except ValueError as e:
-            socket.close()
-            return
+        filename, chunks = utils.parse_peer_filename_message(conn.recv())
 
         # Update Chunky with new peer and new files.
         self.queuey.add_file(peerId, filename, chunks)
 
+        # Send list of files, chunks, peers to peer.
+
+        # Send list of peer -> (addr, port) to peer
+
         # Poll (until disconnection breaks loop)
         while constants.FOREVER:
             try:
-                message = socket.recv()
-                isDone, chunks = utils.parse_peer_message(message)
+                isDone, chunk = utils.parse_peer_message(conn.recv())
+                chunks = [chunk]
                 if isDone:
                     _logger.info(f"Peer {peerId} is disconnecting.")
                     self.queuey.disconnect(peerId)
@@ -87,7 +90,7 @@ class Tracker(object):
                 if not queue.empty():
                     try:
                         message = queue.get_nowait()
-                        socket.send(message)
+                        conn.send(message)
                     except queue.Empty:
                         continue
 

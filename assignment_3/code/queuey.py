@@ -12,6 +12,7 @@ class Queuey(object):
     def __init__(self):
         self.thread_count = 0
         self.outbound_message_queues = []
+        self.peer_info = {}
 
         # Queue holds funcs: Callable[Chunky] -> str; where str is a message to broadcast to all peers.
         self.task_queue = asyncio.Queue()
@@ -68,12 +69,22 @@ class Queuey(object):
         Id += 1
         return Id, queue.Queue()
 
+    def add_peer(self, peerId: int, socket_info: Tuple[str, int]):
+        """
+
+        Args:
+            peerId: The id of the peer.
+            socket_info: A tuple containing the address and port to contact the peer via.
+        """
+        self.peer_info[peerId] = socket_info
+    
+
    #####################################################################################
    ############################## TASK CREATION FUNCTIONS ##############################
    #####################################################################################
 
     def add_file(self, peerId: int, filename: str, chunks: int ) -> None:
-        """ Adds a file to Chunky and map that a peer has all corresponding chunks.
+        """ Adds a file to Chunky and add the peer to all corresponding chunks.
 
         Args:
             peerId: The ID of the peer whom has all chunks from a file.
@@ -120,4 +131,3 @@ class Queuey(object):
             return utils.create_peer_acquired_chunk_message(peerId, filename, chunkId)
 
         return apply_peer_acquired_chunk
-

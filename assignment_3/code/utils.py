@@ -1,6 +1,7 @@
+import json
 import random
 from socket import socket, AF_INET, SOCK_STREAM, error as socket_error
-from typing import Tuple
+from typing import Tuple, Dict, List
 
 import constants
 from constants import MessageCode
@@ -37,6 +38,25 @@ def bind_TCP_port(addr: str) -> Tuple[socket, int]:
             continue
 
     raise PortBindingException()
+
+def parse_peer_message(message):
+    """
+
+    Args:
+        message: A message received by the tracker from a peer.
+
+    Returns:
+        A tuple containing:
+            * whether the peer is indicating it is done.
+            * The chunk it has acquired (-1 if the message is a disconnection message)
+    """
+    message_type, chunk = message.split(constants.MESSAGE_SEPARATOR, 1)
+    message_type = int(message_type)
+
+    if message_type == MessageCode.PEER_DISCONNECT.value:
+        return True, -1
+    elif message_type == MessageCode.PEER_ACQUIRED_CHUNK.value:
+        return False, int(chunk)
 
 def create_peer_disconnect_message(peerId) -> str:
     """ Creates a message stating a certain peer has disconnected.
@@ -153,3 +173,78 @@ def parse_file_chunk_message(msg: str) -> Tuple[str, int, str]:
     """
     filename, chunk_Id, data = msg.split(constants.MESSAGE_SEPARATOR, 2)
     return filename, int(chunk_Id), data
+
+def create_new_peer_message(addr, port) -> str:
+    """ Creates a message for stating there is a new peer in the network.
+
+    Args:
+        addr: The IP address the peer is on.
+        port: The port to connect with the peer via.
+
+    Returns:
+        A formatted message.
+    """
+    return f"{MessageCode.NEW_PEER_CONNECTION.value} {addr} {port}"
+
+def parse_new_peer_message(message: str) -> Tuple[str, int]:
+    """ Parses a peer-tracker connection message.
+
+    Args:
+        msg: A message received by a peer.
+    Returns:
+        A Tuple consisting of:
+            * The IP address of the new peer.
+            * The port to contact the peer on.
+    """
+    addr, port = message.split(constants.MESSAGE_SEPARATOR)[1:]
+    return addr, int(port)
+
+
+def create_chunk_list_message(chunk_data: Dict[str, Dict[int, List[int]]]) -> str:
+    """ Creates a message that contains all the details of chunk data in the network.
+
+    Args:
+        chunk_data: Map from Files -> (Map from Chunks -> List[peer ID's with specific chunk from file]
+        See files property of Chunky in chunky.py
+    Returns:
+        A formatted message.
+    """
+    return f"{MessageCode.CHUNK_LIST.value} {json.dumps(chunk_data)} "
+
+
+def parse_chunk_list_message(message: str) -> Dict[str, Dict[int, List[int]]]:
+    """ Parses a message containing all the (addr, port) of the peers.
+
+    Args:
+        message: A message received by a peer.
+
+    Returns:
+        Map from Files -> (Map from Chunks -> List[peer ID's with specific chunk from file]
+        See files property of Chunky in chunky.py
+    """
+    code, obj = message.split(constants.MESSAGE_SEPARATOR, 1)
+    return json.loads(obj)
+
+
+def create_peer_list_message(peers: Dict[int, Tuple[str, int]]) -> str:
+    """ Creates a message containing the port and addr to contact other peers via.
+
+    Args:
+        peers: A mapping from peer Ids to addr and port number.
+
+    Returns:
+        A formattted message.
+    """
+    return f"{MessageCode.PEER_LIST.value} {json.dumps(peers)}"
+
+def parse_peer_list_message(message: str) -> Dict[int, Tuple[str, int]]:
+    """ Parses a message containing the connection information for all peers.
+
+    Args:
+        message: A message received from a tracker.
+
+    Returns:
+        A mapping from peer Ids to addr and port number.
+    """
+    code, obj = message.split(constants.MESSAGE_SEPARATOR, 1)
+    return json.loads(obj)

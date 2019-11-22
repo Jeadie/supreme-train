@@ -12,3 +12,6 @@ class MessageCode(Enum):
     PEER_ACQUIRED_FILE = 2
     NEW_CHUNK_IN_SYSTEM = 3
     FILE_CHUNK = 4
+    NEW_PEER_CONNECTION = 5
+    CHUNK_LIST = 6
+    PEER_LIST = 7
