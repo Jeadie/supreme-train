@@ -1,9 +1,11 @@
-from typing import List, Dict
+from functools import reduce
+from typing import List, Dict, Tuple
 
 
-# TODO: create static method for creating Chunky()
 class Chunky(object):
     """ Data Structure to manage chunks."""
+
+    # TODO: fix data structure. Not the most efficient way to do this.
 
     @staticmethod
     def create_Chunky(data: Dict[str, Dict[int, List[int]]]) -> object:
@@ -75,3 +77,39 @@ class Chunky(object):
             chunks: The number of chunks the file has.
         """
         self.files[filename] = dict([(i, peerId) for i in range(chunks)])
+
+    def has_all_files(self, files: Dict[str, List[int]]) -> bool:
+        """ Checks if the given files contain all those in Chunky.(i.e.
+            chunky \subseteq files)
+
+        Args:
+            files: A mapping of files to a list of chunks from that file.
+
+        Returns:
+            True if all files in Chunky appear in the files, False otherwise.
+        """
+        for f in self.files.keys():
+            if len(set(self.files[f].keys()) - set(files.get(f, []))) > 0:
+                return False
+
+        return True
+
+    def get_next_peer(self, files: Dict[str, List[int]]) -> Tuple[int, str, List[int]]:
+        """ Calculates which file and peer the peer with the files should contact next.
+
+        Args:
+            files: A mapping of files to a list of chunks from that file that a peer has.
+
+        Returns:
+            A tuple containing the following:
+                * The id of the peer to contact.
+                * The file to ask for.
+                * The List of chunks to ask for.
+
+            Return the next peer to connect to, which file and chunks should be asked for.
+        """
+        for f in self.files.keys():
+            if len(set(self.files[f].keys()) - set(files.get(f, []))) > 0:
+                users = list(reduce(lambda x, y: set(x).intersection(set(y)),
+                                    self.files[f].values()))
+                return users[0], f, self.files[f][users[0]]

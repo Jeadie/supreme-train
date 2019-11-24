@@ -56,7 +56,7 @@ def parse_peer_message(msg: bytes) -> Tuple[bool, int]:
     """
     message_type, chunk = msg.decode().split(constants.MESSAGE_SEPARATOR, 1)
     message_type = int(message_type)
-
+ 
     if message_type == MessageCode.PEER_DISCONNECT.value:
         return True, -1
     elif message_type == MessageCode.PEER_ACQUIRED_CHUNK.value:
@@ -182,30 +182,32 @@ def parse_file_chunk_message(msg: bytes) -> Tuple[str, int, str]:
     filename, chunk_Id, data = msg.decode().split(constants.MESSAGE_SEPARATOR, 2)
     return filename, int(chunk_Id), data
 
-def create_new_peer_message(addr: str, port: int) -> bytes:
+def create_new_peer_message(peer_id:int, addr: str, port: int) -> bytes:
     """ Creates a message for stating there is a new peer in the network.
 
     Args:
+        peer_id: The reference ID of the peer.
         addr: The IP address the peer is on.
         port: The port to connect with the peer via.
 
     Returns:
         A formatted message.
     """
-    return f"{MessageCode.NEW_PEER_CONNECTION.value} {addr} {port}".encode()
+    return f"{MessageCode.NEW_PEER_CONNECTION.value} {peer_id} {addr} {port}".encode()
 
-def parse_new_peer_message(message: bytes) -> Tuple[str, int]:
+def parse_new_peer_message(message: bytes) -> Tuple[int, str, int]:
     """ Parses a peer-tracker connection message.
 
     Args:
         msg: A message received by a peer.
     Returns:
         A Tuple consisting of:
+            * The ID to refer to the peer by.
             * The IP address of the new peer.
             * The port to contact the peer on.
     """
-    addr, port = message.decode().split(constants.MESSAGE_SEPARATOR)[1:]
-    return addr, int(port)
+    id, addr, port = message.decode().split(constants.MESSAGE_SEPARATOR)[1:]
+    return id, addr, int(port)
 
 
 def create_chunk_list_message(chunk_data: Dict[str, Dict[int, List[int]]]) -> bytes:
@@ -256,3 +258,40 @@ def parse_peer_list_message(message: bytes) -> Dict[int, Tuple[str, int]]:
     """
     code, obj = message.decode().split(constants.MESSAGE_SEPARATOR, 1)
     return json.loads(obj)
+
+def create_chunk_request_message(filename: str, chunks: List[int]) -> bytes:
+    """ Creates a message requesting a list of chunks of a file from a peer.
+
+    Args:
+        filename: The name of the file requested.
+        chunks: A list of Chunk Ids requested.
+
+    Returns:
+        A formatted Message.
+    """
+    return f"{MessageCode.CHUNK_REQUEST} {filename} {constants.MESSAGE_SEPARATOR.join(chunks)}".encode()
+
+def parse_chunk_request_message(msg: bytes) -> Tuple[str, List[int]]:
+    """ Parses a message requesting chunks.
+
+    Args:
+        msg: A message received by a peer requesting chunks.
+
+    Returns:
+        A tuple consisting of:
+            * The filename of the file requested.
+            * A list of chunk Ids requested by the peer.
+    Raises:
+        UnexpectedMessageReceivedException: If the message has a code other than
+            MessageCode.CHUNK_REQUEST
+    """
+    try:
+        code, filename, *chunks = msg.decode().split(constants.MESSAGE_SEPARATOR)
+    except ValueError:
+        raise UnexpectedMessageReceivedException(
+            f"Received message from peer not with code: {MessageCode.CHUNK_REQUEST}."
+        )
+    try:
+        return filename, [int(i) for i in chunks]
+    except ValueError:
+        return filename, []

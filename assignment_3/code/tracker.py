@@ -10,7 +10,6 @@ from custom_exceptions import PortBindingException, UnexpectedMessageReceivedExc
 from queuey import Queuey
 import utils
 
-
 _logger = logging.getLogger(f"Tracker")
 
 
@@ -31,7 +30,7 @@ class Tracker(object):
         try:
             self.sock, self.port = utils.bind_TCP_port(self.addr)
 
-            with open(constants.TRACKER_PORT_FILENAME, "r") as f:
+            with open(constants.TRACKER_PORT_FILENAME, "w") as f:
                 f.write(str(self.port))
 
             _logger.warning(f"Created main tracker socket at port: {self.port}.")
@@ -44,7 +43,8 @@ class Tracker(object):
             )
             return
 
-    def handle_single_peer(self, socket: socket, peerId: int, queue: queue.Queue) -> None:
+    def handle_single_peer(self, socket: socket, peerId: int,
+                           queue: queue.Queue) -> None:
         """ Handles communication with a single socket.
 
         Args:
@@ -68,14 +68,19 @@ class Tracker(object):
         conn.settimeout(constants.TCP_TIMEOUT_DURATION)
 
         try:
+            msg = conn.recv(constants.MAX_BUFFER_SIZE)
+
             # Get the IP & port that other peers can connect with
-            peer_addr, port = utils.parse_new_peer_message(conn.recv(constants.MAX_BUFFER_SIZE))
-            self.queuey.add_peer(peerId, (peer_addr, port))
+            new_peer, peer_addr, port = utils.parse_new_peer_message(
+                msg)
+            self.queuey.add_peer(new_peer, (peer_addr, port))
 
             # Get Filename and sizefrom client
-            id, data = utils.parse_new_file_message(conn.recv(constants.MAX_BUFFER_SIZE))
+            id, data = utils.parse_new_file_message(
+                conn.recv(constants.MAX_BUFFER_SIZE))
             # Update Chunky with new peer and new files.
             for file in data:
+                _logger.warning(f"GETTING FILE: {file}")
                 filename, chunks = file
                 self.queuey.add_file(id, filename, chunks)
 
@@ -95,7 +100,7 @@ class Tracker(object):
         # Poll (until disconnection breaks loop)
         while constants.FOREVER:
             try:
-                msg =conn.recv(constants.MAX_BUFFER_SIZE)
+                msg = conn.recv(constants.MAX_BUFFER_SIZE)
                 if not msg:
                     raise timeout
 
@@ -127,7 +132,6 @@ class Tracker(object):
                     except queue.Empty:
                         continue
 
-
     def run(self) -> None:
         """ Runs the tracker server indefinitely.
         """
@@ -152,9 +156,9 @@ class Tracker(object):
             id, message_queue = self.queuey.add_thread()
             _logger.warning(f"Tracker new connection at port: {port}.")
             # Start thread to communicate with single peer
-            t = threading.Thread(target=self.handle_single_peer, args=(socket, id, message_queue,))
+            t = threading.Thread(target=self.handle_single_peer,
+                                 args=(socket, id, message_queue,))
             t.start()
-
 
 
 def main():
