@@ -1,14 +1,15 @@
 import logging
 import queue
 from socket import socket, timeout, gethostbyname, gethostname
+import sys
 import threading
-from typing import Queue
 
 from chunky import Chunky
 import constants
-from custom_exceptions import PortBindingException
+from custom_exceptions import PortBindingException, UnexpectedMessageReceivedException
 from queuey import Queuey
 import utils
+
 
 _logger = logging.getLogger(f"Tracker")
 
@@ -28,7 +29,14 @@ class Tracker(object):
         self.queuey = Queuey()
         # Choose and save port number to file.
         try:
-            self.sock = utils.bind_TCP_port(self.addr)
+            self.sock, self.port = utils.bind_TCP_port(self.addr)
+
+            with open(constants.TRACKER_PORT_FILENAME, "r") as f:
+                f.write(str(self.port))
+
+            _logger.warning(f"Created main tracker socket at port: {self.port}.")
+            self.sock.listen(constants.MAX_QUEUED_CONNECTIONS)
+
         except PortBindingException as e:
             _logger.error(
                 f"Could not connect to a port after "
@@ -36,7 +44,7 @@ class Tracker(object):
             )
             return
 
-    def handle_single_peer(self, socket: socket, peerId: int, queue: Queue) -> None:
+    def handle_single_peer(self, socket: socket, peerId: int, queue: queue.Queue) -> None:
         """ Handles communication with a single socket.
 
         Args:
@@ -45,7 +53,6 @@ class Tracker(object):
 
         # Wait for peer to reconnect (peer will drop connection, then connect to new
         # peer specific port)
-
         while constants.FOREVER:
             try:
                 conn, addr = socket.accept()
@@ -56,27 +63,53 @@ class Tracker(object):
                 # Repeat indefinitely.
                 continue
 
-        # Get the IP & port that other peers can connect with
-        peer_addr, port = utils.parse_new_peer_message(conn.recv())
-        self.queuey.add_peer(peerId, (peer_addr, port))
+        # Now peer has reconnected, send it its ID.
+        conn.send(str(peerId).encode())
+        conn.settimeout(constants.TCP_TIMEOUT_DURATION)
 
-        # Get Filename and sizefrom client
-        filename, chunks = utils.parse_peer_filename_message(conn.recv())
+        try:
+            # Get the IP & port that other peers can connect with
+            peer_addr, port = utils.parse_new_peer_message(conn.recv(constants.MAX_BUFFER_SIZE))
+            self.queuey.add_peer(peerId, (peer_addr, port))
 
-        # Update Chunky with new peer and new files.
-        self.queuey.add_file(peerId, filename, chunks)
+            # Get Filename and sizefrom client
+            id, data = utils.parse_new_file_message(conn.recv(constants.MAX_BUFFER_SIZE))
+            # Update Chunky with new peer and new files.
+            for file in data:
+                filename, chunks = file
+                self.queuey.add_file(id, filename, chunks)
 
-        # Send list of files, chunks, peers to peer.
+            # Send list of files, chunks, peers to peer.
+            msg = utils.create_chunk_list_message(self.chunky.files)
+            conn.send(msg)
 
-        # Send list of peer -> (addr, port) to peer
+            # Send list of peer -> (addr, port) to peer
+            msg = utils.create_peer_list_message(self.queuey.peer_info)
+            conn.send(msg)
+        except UnexpectedMessageReceivedException as e:
+            _logger.error(
+                f"An error occurred in initial Peer-Tracker handshake. "
+                f"Error: {str(e)}."
+            )
 
         # Poll (until disconnection breaks loop)
         while constants.FOREVER:
             try:
-                isDone, chunk = utils.parse_peer_message(conn.recv())
+                msg =conn.recv(constants.MAX_BUFFER_SIZE)
+                if not msg:
+                    raise timeout
+
+                try:
+                    isDone, chunk = utils.parse_peer_message(msg)
+                except UnexpectedMessageReceivedException as e:
+                    _logger.error(
+                        f"An unexpected Message was received from peer. "
+                        f"Error: {str(e)}"
+                    )
+
                 chunks = [chunk]
                 if isDone:
-                    _logger.info(f"Peer {peerId} is disconnecting.")
+                    _logger.warning(f"Peer {peerId} is disconnecting.")
                     self.queuey.disconnect(peerId)
                     socket.close()
                     break
@@ -104,26 +137,36 @@ class Tracker(object):
 
             except timeout:
                 # Empty Queue
-                self.queuey.process_tasks()
+                _logger.warning(f"Timeout. Emptying task queue.")
+                self.queuey.process_tasks(self.chunky)
+                continue
 
+            _logger.warning(f"Received new connection from peer.")
             # Create new TCP connection, send port to peer node.
             socket, port = utils.bind_TCP_port(self.addr)
-            socket.settimeout(constants.TCP_TIMEOUT_DURATION)
-            c.send(port)
+            socket.listen(constants.MAX_QUEUED_CONNECTIONS)
+            c.send(str(port).encode())
             c.close()
 
             # Add queue
             id, message_queue = self.queuey.add_thread()
-
+            _logger.warning(f"Tracker new connection at port: {port}.")
             # Start thread to communicate with single peer
-            t = threading.Thread(target=self.handle_single_peer, args=(socket, id, message_queue))
+            t = threading.Thread(target=self.handle_single_peer, args=(socket, id, message_queue,))
             t.start()
 
 
 
 def main():
+    # Setup Logging
+    stdout_handler = logging.StreamHandler(stream=sys.stdout)
+    stdout_handler.setLevel(logging.DEBUG)
+    _logger.addHandler(stdout_handler)
+
     addr = gethostbyname(gethostname())
-    Tracker.run(addr)
+
+    t = Tracker("127.0.0.1")
+    t.run()
 
 
 if __name__ == "__main__":

@@ -1,7 +1,27 @@
 from typing import List, Dict
 
+
+# TODO: create static method for creating Chunky()
 class Chunky(object):
     """ Data Structure to manage chunks."""
+
+    @staticmethod
+    def create_Chunky(data: Dict[str, Dict[int, List[int]]]) -> object:
+        """ Creates a Chunky object with pre-existing data.
+
+        Args:
+            data: Data format identical to that of self.files
+
+        Returns:
+            A Chunky object with data pre-populated.
+        """
+        c = Chunky()
+        c.files = data
+        c.peers = max(
+            map(lambda x: max(map(lambda y: max(y, default=0), x.values()), default=0),
+                data.values()), default=0)
+        return c
+
     def __init__(self):
         """ Constructor.
 
@@ -18,7 +38,9 @@ class Chunky(object):
         #     },
         #     ...
         # }
-        self.files = Dict[str, Dict[int, List[int]]]
+
+        # Dict[str, Dict[int, List[int]]]
+        self.files = {}
         self.peers = 0
 
     def add_chunk_to_peer(self, peerId: int, filename: str, chunkId: int) -> None:
@@ -42,7 +64,6 @@ class Chunky(object):
                 if peerId in chunk:
                     chunk.remove(peerId)
 
-
     def add_file(self, peerId: int, filename: str, chunks: int) -> None:
         """ Adds a new file to chunky.
 
@@ -54,4 +75,3 @@ class Chunky(object):
             chunks: The number of chunks the file has.
         """
         self.files[filename] = dict([(i, peerId) for i in range(chunks)])
-
