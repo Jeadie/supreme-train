@@ -15,6 +15,7 @@ from constants import MessageCode
 from custom_exceptions import PortBindingException, UnexpectedMessageReceivedException
 import utils
 
+logging.basicConfig(format='[PEER] - %(message)s')
 _logger = logging.getLogger(f"Peer")
 
 
@@ -94,6 +95,7 @@ class Peer(object):
         self_ID = tracker_socket.recv(constants.MAX_BUFFER_SIZE).decode()
         try:
             self.id = int(self_ID)
+            logging.basicConfig(format=f"[PEER][{self.id}] - %(message)s")
         except ValueError:
             _logger.error(f"Invalid ID from tracker: {self_ID}. Exiting.")
             return
@@ -139,11 +141,12 @@ class Peer(object):
         giving_t.start()
 
         # Don't block on tracker socket.
-        tracker_socket.settimeout(0.1)
+        tracker_socket.settimeout(2)
 
         # Acquire files or wait to exit.
         while constants.FOREVER:
             if self.chunky.has_all_files(self.acquired_files):
+                _logger.warning(f"Have all files, sleeping")
 
                 # Check if peer gives data whilst sleeping.
                 self.giving_data = False
@@ -151,6 +154,7 @@ class Peer(object):
 
                 # Check for new messages
                 self.handle_messages_from_tracker(tracker_socket)
+                _logger.warning(f"Handled any extra tracker messages")
 
                 # Check if no new files are in system and peer has not given data whilst asleep.
                 if self.chunky.has_all_files(self.acquired_files) and not self.giving_data:
@@ -173,7 +177,15 @@ class Peer(object):
         while not self.chunky.has_all_files(self.acquired_files):
             # Ask for file
             peerId, filename, chunks = self.chunky.get_next_peer(self.acquired_files)
-            self.ask_for_file(self.peer_info[peerId], filename, chunks)
+            chunks = self.ask_for_file(self.peer_info[peerId], filename, chunks)
+            for c in chunks:
+                self.chunky.add_chunk_to_peer(self.id, filename, c)
+                tracker_socket.send(utils.create_peer_acquired_chunk_message(self.id, filename, c))
+            has_chunks =self.acquired_files.get(filename, False)
+            if has_chunks:
+                self.acquired_files[filename].extend(chunks)
+            else:
+                self.acquired_files[filename] = chunks
 
             # Handle messages from Tracker.
             self.handle_messages_from_tracker(tracker_socket)
@@ -193,7 +205,7 @@ class Peer(object):
                     return
             except timeout:
                 return
-            print("MSGSG", msg, "S")
+            _logger.warning(f"Deconstructing message: {msg}")
             code, _ = msg.decode().split(constants.MESSAGE_SEPARATOR, 1)
             if code == MessageCode.PEER_DISCONNECT.value:
                 peer = utils.parse_peer_disconnect_message(msg)
@@ -215,19 +227,19 @@ class Peer(object):
 
 
             elif code == MessageCode.NEW_PEER_CONNECTION.value:
-                id, addr, port = utils.parse_new_peer_message(msg)
-                if self.peer_info.get(id, None):
-                    _logger.warning(f"Overwriting network details for peer: {id}.")
+                new_id, addr, port = utils.parse_new_peer_message(msg)
+                if self.peer_info.get(new_id, None):
+                    _logger.warning(f"Overwriting network details for peer: {new_id}.")
                 try:
                     port = int(port)
                 except ValueError:
                     return
-                self.peer_info[id] = (addr, port)
+                self.peer_info[int(new_id)] = (addr, port)
             else:
                 _logger.warning(f"Received message from tracker with unexpected code: {code}.")
 
 
-    def ask_for_file(self, peer_info: Tuple[str, int], filename: str, chunks: List[int]) -> bool:
+    def ask_for_file(self, peer_info: Tuple[str, int], filename: str, chunks: List[int]) -> List[int]:
         """ Asks a peer for a given file.
 
         Args:
@@ -236,7 +248,7 @@ class Peer(object):
             chunks: The list of chunks to ask the peer for.
 
         Returns:
-            True if all chunks requested from the peer were received, False otherwise.
+            The list of chunk Ids acquired for the file.
         """
         # Create new TCP socket
         try:
@@ -269,10 +281,10 @@ class Peer(object):
                 break
 
         # Save to file
-        with open(filename, "a+") as f:
+        with open(f"{constants.PEER_FILE_DIRECTORY}{filename}", "a+") as f:
             for i in chunks_data:
                 f.write(i[-1])
-        return True
+        return [i[0] for i in chunks_data]
 
     def handle_giving_port(self, socket):
         """ A thread dedicated to listening for other peers communicating with it and
@@ -290,7 +302,7 @@ class Peer(object):
 
             except OSError:
                 _logger.info(f"Socket closed. Peer has disconnected")
-                return 
+                return
 
             self.giving_data = True
             msg = c.recv(constants.MAX_BUFFER_SIZE)
@@ -301,11 +313,11 @@ class Peer(object):
                 continue
 
             chunks.sort()
-            with open(filename, "r") as f:
-                for c in chunks:
-                    f.seek(constants.CHUNK_SIZE * c)
-                    data = f.read(n=constants.CHUNK_SIZE)
-                    c.send(utils.create_file_chunk_message(filename, c, data))
+            with open(f"{constants.PEER_FILE_DIRECTORY}{filename}") as f:
+                for chunk in chunks:
+                    f.seek(constants.CHUNK_SIZE * chunk)
+                    data = f.read(constants.CHUNK_SIZE)
+                    c.send(utils.create_file_chunk_message(filename, chunk, data))
             c.close()
             self.giving_data = True
 
@@ -323,7 +335,8 @@ def main():
     # Configure Logging
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     stdout_handler.setLevel(logging.DEBUG)
-    _logger.addHandler(stdout_handler)
+    # _logger.addHandler(stdout_handler)
+
 
     # Run Client
     peer = Peer(args.tracker_address, args.tracker_port, args.min_alive_time)

@@ -1,5 +1,6 @@
 import queue
 import asyncio
+from asyncio.queues import QueueEmpty as QEmpty
 from typing import Tuple
 
 from chunky import Chunky
@@ -15,7 +16,7 @@ class Queuey(object):
         self.peer_info = {}
 
         # Queue holds funcs: Callable[Chunky] -> str; where str is a message to broadcast to all peers.
-        self.task_queue = asyncio.Queue()
+        self.task_queue = queue.Queue()
 
     def process_tasks(self, chunky: Chunky) -> None:
         """ Processes all tasks in the queue.
@@ -23,24 +24,25 @@ class Queuey(object):
         Args:
             chunky: A Chunk management object.
         """
-        if self.has_tasks():
-            while constants.FOREVER:
-                try:
+        # if self.has_tasks():
+        while constants.FOREVER:
+            try:
+                t = self.task_queue.get_nowait()
+                print("FFF", t)
+                if t is None:
+                    break
 
-                    t = self.task_queue.get()
-                    if t is None:
-                        break
+                message = t(chunky)
+                print("TASK]: ", message.decode())
+                self.broadcast_message(message)
 
-                    message = t(chunky)
-                    self.broadcast_message(message)
+                # An asynico Queue specific requirement.
+                self.task_queue.task_done()
 
-                    # An asynico Queue specific requirement.
-                    self.task_queue.task_done()
+            except (queue.Empty, QEmpty) :
+                return None
 
-                except queue.Empty:
-                    return None
-
-    def broadcast_message(self, message: str) -> None:
+    def broadcast_message(self, message: bytes) -> None:
         """ Broadcasts a message to all peers.
 
         Args:
@@ -52,7 +54,7 @@ class Queuey(object):
         for queue in self.outbound_message_queues:
             queue.put(message)
 
-    def has_tasks(self)-> bool:
+    def has_tasks(self) -> bool:
         """ Returns True if there is at least one task in the queue, False otherwise."""
         return not self.task_queue.empty()
 
@@ -66,7 +68,7 @@ class Queuey(object):
                     to its peer.
         """
         Id = self.thread_count
-        Id += 1
+        self.thread_count += 1
         return Id, queue.Queue()
 
     def add_peer(self, peerId: int, socket_info: Tuple[str, int]):
@@ -95,9 +97,9 @@ class Queuey(object):
             if peerId > chunky.peers:
                 chunky.add_peer(peerId)
             chunky.add_file(peerId, filename, chunks)
-            return utils.create_new_file_message(peerId, filename, chunks)
+            return utils.create_new_file_message(peerId, [(filename, chunks)])
 
-        return apply_add_file
+        self.task_queue.put(apply_add_file)
 
     def disconnect(self, peerId: int) -> None:
         """ Handles when a peer disconnects.
@@ -110,9 +112,10 @@ class Queuey(object):
 
         def apply_disconnect(chunky):
             chunky.remove_peer(peerId)
+            self.peer_info.pop(peerId)
             return utils.create_peer_disconnect_message(peerId)
 
-        return apply_disconnect
+        self.task_queue.put(apply_disconnect)
 
     def peer_acquired_chunk(self, peerId: int, filename: str, chunkId: int) -> None:
         """ Handles when a peer has acquired a file chunk.
@@ -130,4 +133,5 @@ class Queuey(object):
             chunky.add_chunk_to_peer(peerId, filename, chunkId)
             return utils.create_peer_acquired_chunk_message(peerId, filename, chunkId)
 
-        return apply_peer_acquired_chunk
+
+        self.task_queue.put(apply_peer_acquired_chunk)

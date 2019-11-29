@@ -1,6 +1,6 @@
 import json
 import random
-from socket import socket, AF_INET, SOCK_STREAM, error as socket_error
+from socket import socket, AF_INET, SOCK_STREAM, timeout, error as socket_error
 from typing import Tuple, Dict, List
 
 import constants
@@ -39,9 +39,9 @@ def bind_TCP_port(addr: str) -> Tuple[socket, int]:
 
     raise PortBindingException()
 
-# TODO: add message code checking on parsing functions with custom erroring.
 
-def parse_peer_message(msg: bytes) -> Tuple[bool, int]:
+def parse_peer_message(msg: bytes) -> Tuple[bool, str, int]:
+    # TODO: Ugly function, should fix.
     """
 
     Args:
@@ -50,17 +50,19 @@ def parse_peer_message(msg: bytes) -> Tuple[bool, int]:
     Returns:
         A tuple containing:
             * whether the peer is indicating it is done.
+            * The name of the file acquired (empty if disconnect message).
             * The chunk it has acquired (-1 if the message is a disconnection message)
     Raises:
         UnexpectedMessageReceivedException: If the message
     """
     message_type, chunk = msg.decode().split(constants.MESSAGE_SEPARATOR, 1)
     message_type = int(message_type)
- 
+
     if message_type == MessageCode.PEER_DISCONNECT.value:
-        return True, -1
+        return True, "", -1
     elif message_type == MessageCode.PEER_ACQUIRED_CHUNK.value:
-        return False, int(chunk)
+        peer_id, filename, chunk = parse_peer_acquired_chunk_message(msg)
+        return False, filename, int(chunk)
     else:
         raise UnexpectedMessageReceivedException(
             f"Message was neither a {MessageCode.PEER_DISCONNECT} or "
@@ -76,7 +78,7 @@ def create_peer_disconnect_message(peerId) -> bytes:
     Returns:
         A formatted message.
     """
-    return f"{MessageCode.PEER_DISCONNECT.value} {peerId}".encode()
+    return f"{MessageCode.PEER_DISCONNECT.value} {peerId}\n".encode()
 
 def parse_peer_disconnect_message(msg: bytes) -> int:
     """ Parses a peer disconnection message.
@@ -104,7 +106,7 @@ def create_peer_acquired_chunk_message(peerId: int, filename: str, chunk: int) -
     Returns:
         A formatted message.
     """
-    return f"{MessageCode.PEER_ACQUIRED_CHUNK.value} {peerId} {filename} {chunk}".encode()
+    return f"{MessageCode.PEER_ACQUIRED_CHUNK.value} {peerId} {filename} {chunk}\n".encode()
 
 
 def parse_peer_acquired_chunk_message(msg: bytes) -> Tuple[int, str, int]:
@@ -135,7 +137,7 @@ def create_new_file_message(peerId: int, files: List[Tuple[str, int]]) -> bytes:
     Returns:
         A formatted message.
     """
-    return f"{MessageCode.NEW_FILES_IN_SYSTEM.value} {peerId} {json.dumps(files)}".encode()
+    return f"{MessageCode.NEW_FILES_IN_SYSTEM.value} {peerId} {json.dumps(files)}\n".encode()
 
 
 def parse_new_file_message(msg: bytes) -> Tuple[int, List[Tuple[str, int]]]:
@@ -151,6 +153,7 @@ def parse_new_file_message(msg: bytes) -> Tuple[int, List[Tuple[str, int]]]:
             * The Id of the peer with the file (must exist or file not in system)
             * A list of (filename, number of chunks) tuples
     """
+    print("parse_new_file_message", msg)
     code, Id, files= msg.decode().split(constants.MESSAGE_SEPARATOR, 2)
     return int(Id), json.loads(files)
 
@@ -165,7 +168,7 @@ def create_file_chunk_message(filename: str, chunkId: int, chunk_data: str) -> b
     Returns:
         A formatted message.
     """
-    return f"{MessageCode.FILE_CHUNK.value} {filename} {chunkId} {chunk_data}".encode()
+    return f"{MessageCode.FILE_CHUNK.value} {filename} {chunkId} {chunk_data}\n".encode()
 
 def parse_file_chunk_message(msg: bytes) -> Tuple[str, int, str]:
     """ Parses a file chunk message.
@@ -179,7 +182,10 @@ def parse_file_chunk_message(msg: bytes) -> Tuple[str, int, str]:
             * The id of the file chunk
             * The raw chunk data itself.
     """
-    filename, chunk_Id, data = msg.decode().split(constants.MESSAGE_SEPARATOR, 2)
+    print("parse_file_chunk_message", msg)
+
+    # only three splits as data may contain additional separators.
+    code, filename, chunk_Id, data = msg.decode().split(constants.MESSAGE_SEPARATOR, 3)
     return filename, int(chunk_Id), data
 
 def create_new_peer_message(peer_id:int, addr: str, port: int) -> bytes:
@@ -193,7 +199,7 @@ def create_new_peer_message(peer_id:int, addr: str, port: int) -> bytes:
     Returns:
         A formatted message.
     """
-    return f"{MessageCode.NEW_PEER_CONNECTION.value} {peer_id} {addr} {port}".encode()
+    return f"{MessageCode.NEW_PEER_CONNECTION.value} {peer_id} {addr} {port}\n".encode()
 
 def parse_new_peer_message(message: bytes) -> Tuple[int, str, int]:
     """ Parses a peer-tracker connection message.
@@ -206,8 +212,9 @@ def parse_new_peer_message(message: bytes) -> Tuple[int, str, int]:
             * The IP address of the new peer.
             * The port to contact the peer on.
     """
-    id, addr, port = message.decode().split(constants.MESSAGE_SEPARATOR)[1:]
-    return id, addr, int(port)
+    print("parse_new_peer_message", message)
+    code, peer_id, addr, port = message.decode().split(constants.MESSAGE_SEPARATOR)
+    return int(peer_id), addr, int(port)
 
 
 def create_chunk_list_message(chunk_data: Dict[str, Dict[int, List[int]]]) -> bytes:
@@ -219,7 +226,7 @@ def create_chunk_list_message(chunk_data: Dict[str, Dict[int, List[int]]]) -> by
     Returns:
         A formatted message.
     """
-    return f"{MessageCode.CHUNK_LIST.value} {json.dumps(chunk_data)}".encode()
+    return f"{MessageCode.CHUNK_LIST.value} {json.dumps(chunk_data)}\n".encode()
 
 
 def parse_chunk_list_message(message: bytes) -> Dict[str, Dict[int, List[int]]]:
@@ -232,8 +239,18 @@ def parse_chunk_list_message(message: bytes) -> Dict[str, Dict[int, List[int]]]:
         Map from Files -> (Map from Chunks -> List[peer ID's with specific chunk from file]
         See files property of Chunky in chunky.py
     """
+    print("parse_chunk_list_message", message)
     code, obj = message.decode().split(constants.MESSAGE_SEPARATOR, 1)
-    return json.loads(obj)
+    obj = json.loads(obj)
+
+    for k in list(obj.keys()):
+        result = {}
+        v = obj.pop(k)
+        for v_c in list(v.keys()):
+            result[int(v_c)] = v[v_c]
+        obj[k] = result
+    return obj
+
 
 
 def create_peer_list_message(peers: Dict[int, Tuple[str, int]]) -> bytes:
@@ -245,7 +262,7 @@ def create_peer_list_message(peers: Dict[int, Tuple[str, int]]) -> bytes:
     Returns:
         A formattted message.
     """
-    return f"{MessageCode.PEER_LIST.value} {json.dumps(peers)}".encode()
+    return f"{MessageCode.PEER_LIST.value} {json.dumps(peers)}\n".encode()
 
 def parse_peer_list_message(message: bytes) -> Dict[int, Tuple[str, int]]:
     """ Parses a message containing the connection information for all peers.
@@ -256,8 +273,18 @@ def parse_peer_list_message(message: bytes) -> Dict[int, Tuple[str, int]]:
     Returns:
         A mapping from peer Ids to addr and port number.
     """
+    print("parse_peer_list_message", message)
     code, obj = message.decode().split(constants.MESSAGE_SEPARATOR, 1)
-    return json.loads(obj)
+
+    obj = json.loads(obj)
+
+    # For some reasons integer keys get converted to str keys in transit and tuple to list???
+    result = {}
+    for k in list(obj.keys()):
+        v = obj.pop(k)
+        result[int(k)] = tuple(v)
+    return result
+
 
 def create_chunk_request_message(filename: str, chunks: List[int]) -> bytes:
     """ Creates a message requesting a list of chunks of a file from a peer.
@@ -269,7 +296,7 @@ def create_chunk_request_message(filename: str, chunks: List[int]) -> bytes:
     Returns:
         A formatted Message.
     """
-    return f"{MessageCode.CHUNK_REQUEST} {filename} {constants.MESSAGE_SEPARATOR.join(chunks)}".encode()
+    return f"{MessageCode.CHUNK_REQUEST} {filename} {constants.MESSAGE_SEPARATOR.join([str(c) for c in chunks])}\n".encode()
 
 def parse_chunk_request_message(msg: bytes) -> Tuple[str, List[int]]:
     """ Parses a message requesting chunks.
@@ -285,6 +312,7 @@ def parse_chunk_request_message(msg: bytes) -> Tuple[str, List[int]]:
         UnexpectedMessageReceivedException: If the message has a code other than
             MessageCode.CHUNK_REQUEST
     """
+    print("parse_chunk_request_message", msg)
     try:
         code, filename, *chunks = msg.decode().split(constants.MESSAGE_SEPARATOR)
     except ValueError:
@@ -295,3 +323,10 @@ def parse_chunk_request_message(msg: bytes) -> Tuple[str, List[int]]:
         return filename, [int(i) for i in chunks]
     except ValueError:
         return filename, []
+
+def append_to_message_queue(message_queue, conn):
+    try:
+        msgs = filter(lambda x: x, conn.recv(constants.MAX_BUFFER_SIZE).split(b"\n"))
+        message_queue.extend(msgs)
+    except timeout:
+        return

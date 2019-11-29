@@ -10,9 +10,17 @@ from custom_exceptions import PortBindingException, UnexpectedMessageReceivedExc
 from queuey import Queuey
 import utils
 
+logging.addLevelName(constants.TRACKER_OUTPUT_LOGGING_LEVEL, "OUTPUT")
+logging.basicConfig(format='[TRACKER] - %(message)s')
 _logger = logging.getLogger(f"Tracker")
 
+def output(self, message, *args, **kws):
+    if self.isEnabledFor(constants.TRACKER_OUTPUT_LOGGING_LEVEL):
+        self._log(constants.TRACKER_OUTPUT_LOGGING_LEVEL, message, args, **kws)
+_logger.output = output
 
+
+# TODO: ADD required outputs
 class Tracker(object):
     """Tracker service for the P2P network."""
 
@@ -34,6 +42,7 @@ class Tracker(object):
                 f.write(str(self.port))
 
             _logger.warning(f"Created main tracker socket at port: {self.port}.")
+            self.sock.settimeout(1)
             self.sock.listen(constants.MAX_QUEUED_CONNECTIONS)
 
         except PortBindingException as e:
@@ -65,19 +74,23 @@ class Tracker(object):
 
         # Now peer has reconnected, send it its ID.
         conn.send(str(peerId).encode())
-        conn.settimeout(constants.TCP_TIMEOUT_DURATION)
+        conn.settimeout(constants.TCP_PEER_TIMEOUT_DURATION)
 
+        msg_queue = []
+
+        # Initial tracker-peer handshake
         try:
-            msg = conn.recv(constants.MAX_BUFFER_SIZE)
-
             # Get the IP & port that other peers can connect with
+            utils.append_to_message_queue(msg_queue, conn)
+
             new_peer, peer_addr, port = utils.parse_new_peer_message(
-                msg)
+                msg_queue.pop(0))
             self.queuey.add_peer(new_peer, (peer_addr, port))
 
             # Get Filename and sizefrom client
-            id, data = utils.parse_new_file_message(
-                conn.recv(constants.MAX_BUFFER_SIZE))
+            utils.append_to_message_queue(msg_queue, conn)
+            print("MESSAGE", msg_queue)
+            id, data = utils.parse_new_file_message(msg_queue.pop(0))
             # Update Chunky with new peer and new files.
             for file in data:
                 _logger.warning(f"GETTING FILE: {file}")
@@ -105,23 +118,23 @@ class Tracker(object):
                     raise timeout
 
                 try:
-                    isDone, chunk = utils.parse_peer_message(msg)
+                    isDone, filename, chunk = utils.parse_peer_message(msg)
                 except UnexpectedMessageReceivedException as e:
                     _logger.error(
                         f"An unexpected Message was received from peer. "
                         f"Error: {str(e)}"
                     )
 
-                chunks = [chunk]
+                # chunks = [chunk]
                 if isDone:
                     _logger.warning(f"Peer {peerId} is disconnecting.")
                     self.queuey.disconnect(peerId)
                     socket.close()
                     break
                 else:
-                    for chunk in chunks:
-                        filename, chunkId = chunk
-                        self.queuey.peer_acquired_chunk(peerId, filename, chunkId)
+                    # for chunk in chunks:
+                    #     filename, chunkId = chunk
+                    self.queuey.peer_acquired_chunk(peerId, filename, chunk)
 
             except timeout:
                 # If messages to send to peer.
@@ -141,7 +154,6 @@ class Tracker(object):
 
             except timeout:
                 # Empty Queue
-                _logger.warning(f"Timeout. Emptying task queue.")
                 self.queuey.process_tasks(self.chunky)
                 continue
 
@@ -165,7 +177,7 @@ def main():
     # Setup Logging
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     stdout_handler.setLevel(logging.DEBUG)
-    _logger.addHandler(stdout_handler)
+    # _logger.addHandler(stdout_handler)
 
     addr = gethostbyname(gethostname())
 
