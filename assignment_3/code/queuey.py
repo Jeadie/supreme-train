@@ -1,11 +1,15 @@
 import queue
-import asyncio
 from asyncio.queues import QueueEmpty as QEmpty
+import logging
 from typing import Tuple
 
 from chunky import Chunky
 import constants
 import utils
+
+queue_logger = logging.getLogger(f"Queuey")
+queue_logger.setLevel(logging.ERROR)
+
 
 class Queuey(object):
     """Handle messages to and from peer threads queues."""
@@ -28,12 +32,12 @@ class Queuey(object):
         while constants.FOREVER:
             try:
                 t = self.task_queue.get_nowait()
-                print("FFF", t)
+
                 if t is None:
                     break
 
                 message = t(chunky)
-                print("TASK]: ", message.decode())
+                queue_logger.warning(f"[QUEUEY] - Broadcast message: {message}.")
                 self.broadcast_message(message)
 
                 # An asynico Queue specific requirement.
@@ -69,7 +73,13 @@ class Queuey(object):
         """
         Id = self.thread_count
         self.thread_count += 1
-        return Id, queue.Queue()
+        q = queue.Queue()
+        self.outbound_message_queues.append(q)
+        return Id, q
+
+   #####################################################################################
+   ############################## TASK CREATION FUNCTIONS ##############################
+   #####################################################################################
 
     def add_peer(self, peerId: int, socket_info: Tuple[str, int]):
         """
@@ -79,11 +89,12 @@ class Queuey(object):
             socket_info: A tuple containing the address and port to contact the peer via.
         """
         self.peer_info[peerId] = socket_info
-    
+        addr, port = socket_info
 
-   #####################################################################################
-   ############################## TASK CREATION FUNCTIONS ##############################
-   #####################################################################################
+        def apply_add_peer(chunky):
+            return utils.create_new_peer_message(peerId, addr, port)
+
+        self.task_queue.put(apply_add_peer)
 
     def add_file(self, peerId: int, filename: str, chunks: int ) -> None:
         """ Adds a file to Chunky and add the peer to all corresponding chunks.

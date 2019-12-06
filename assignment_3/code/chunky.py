@@ -19,7 +19,6 @@ class Chunky(object):
         """
         c = Chunky()
         c.files = data
-        print("data", data)
         c.peers = max(
             map(lambda x: max(map(lambda y: max(y, default=0), x.values()), default=0),
                 data.values()), default=0)
@@ -46,6 +45,30 @@ class Chunky(object):
         self.files = {}
         self.peers = 0
 
+    def get_peers_files(self, peerId: int) -> List[str]:
+        """ Returns the list of files a peer (with specified ID), completely has locally.
+        """
+        return list(
+            filter(
+                # Peer id must be in all chunks of file to imply peer has the file.
+                lambda x: all([peerId in v for v in self.files[x].values()]),
+                           self.files.keys()
+            )
+        )
+
+    def get_num_chunks(self, filename: str) -> int:
+        """ Returns the number of chunks a file has.
+
+        Args:
+            filename: The name of file.
+
+        Returns:
+            The number of chunks that this file has, determined by how many chunks of
+            the file are in the P2P system. If the file is not in the system, return 0.
+        """
+        # TODO: Should throw custom exceptions
+        return len(self.files.get(filename, {}).keys())
+
     def add_peer(self, peerId: int) -> None:
         """ Updates the number of peers that Chunky refers to.
 
@@ -65,7 +88,8 @@ class Chunky(object):
         try:
             self.files[filename][chunkId].append(peerId)
         except KeyError:
-            print(f"ERROR: No peers for {filename}:{chunkId} yet {peerId} acquired it. {self.files}")
+            print(
+                f"ERROR: No peers for {filename}:{chunkId} yet {peerId} acquired it. {self.files}")
             self.files[filename][chunkId] = [peerId]
 
     def remove_peer(self, peerId: int) -> None:
@@ -89,7 +113,11 @@ class Chunky(object):
             filename: The name of the file.
             chunks: The number of chunks the file has.
         """
-        self.files[filename] = dict([(i, [peerId]) for i in range(chunks)])
+        if self.files.get(filename, False):
+            for i in range(chunks):
+                self.files[filename][i].append(peerId)
+        else:
+            self.files[filename] = dict([(i, [peerId]) for i in range(chunks)])
 
     def has_all_files(self, files: Dict[str, List[int]]) -> bool:
         """ Checks if the given files contain all those in Chunky.(i.e.
@@ -102,9 +130,7 @@ class Chunky(object):
             True if all files in Chunky appear in the files, False otherwise.
         """
         for f in self.files.keys():
-            print(f, self.files[f].keys(), files.get(f, []), files)
             if len(set(self.files[f].keys()) - set(files.get(f, []))) > 0:
-                print("PROBLEM")
                 return False
 
         return True
@@ -128,5 +154,6 @@ class Chunky(object):
                 users = list(reduce(lambda x, y: set(x).intersection(set(y)),
                                     self.files[f].values()))
                 peer_id = users[0]
-                chunks = [c[0] for c in filter(lambda x: peer_id in x[-1], self.files[f].items())]
+                chunks = [c[0] for c in
+                          filter(lambda x: peer_id in x[-1], self.files[f].items())]
                 return peer_id, f, chunks
