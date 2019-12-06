@@ -127,7 +127,7 @@ class Tracker(object):
                         f"Error: {str(e)}"
                     )
 
-                _logger.warning(f"{connPeerId} handling message: {msg_code}")
+                _logger.warning(f"{connPeerId} handling message: {msg_code}, {msg}")
                 if msg_code == MessageCode.PEER_DISCONNECT:
                     try:
                         msg_int, msg_chunk = msg.decode().split(
@@ -213,6 +213,7 @@ def main():
     # _logger.addHandler(stdout_handler)
 
     addr = gethostbyname(gethostname())
+
 
     t = Tracker("127.0.0.1")
     t.run()

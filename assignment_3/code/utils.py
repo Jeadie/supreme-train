@@ -1,17 +1,49 @@
 import json
 import queue
 import random
-from socket import socket, AF_INET, SOCK_STREAM, timeout, error as socket_error
+from socket import socket, AF_INET, SOCK_DGRAM, SOCK_STREAM, timeout, error as socket_error
 from typing import Tuple, Dict, List
 
 import constants
 from constants import MessageCode
-from custom_exceptions import PortBindingException, UnexpectedMessageReceivedException
+from custom_exceptions import (
+    PortBindingException,
+    UnexpectedMessageReceivedException
+)
+
+def bind_UDP_port(addr: str) -> Tuple[socket, int]:
+    """ Attempts to bind to an arbitrary port on the given address.
+
+        Args:
+
+            addr: The IP address to bind with.
+
+        Returns:
+             A tuple consisting of:
+                * A socket configured for UPD traffic to a random port number.
+                * The port number the socket is connected to.
+
+        Raises:
+            PortBindingException: If a port could not be binded to after sufficient
+                attempts.
+    """
+    s = socket(AF_INET, SOCK_DGRAM)
+    for i in range(constants.TRACKER_PORT_CONNECT_ATTEMPTS):
+        try:
+            port = random.randint(constants.MIN_PORT_NUMBER,
+                                  constants.MAX_PORT_NUMBER)
+            s.bind((addr, port))
+            s.settimeout(constants.TCP_TIMEOUT_DURATION)
+            return (s, port)
+
+        except socket_error:
+            continue
+
+    raise PortBindingException()
 
 
 def bind_TCP_port(addr: str) -> Tuple[socket, int]:
     """ Attempts to bind to an arbitrary port on the given address.
-
 
     Args:
 

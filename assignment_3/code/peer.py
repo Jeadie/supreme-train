@@ -2,16 +2,21 @@ from argparse import ArgumentParser
 import logging
 import math
 import os
-from socket import gethostbyname, gethostname, timeout
+from socket import gethostbyname, gethostname, timeout, socket
 import sys
+import tempfile
 import threading
 import time
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 from chunky import Chunky
 import constants
 from constants import MessageCode
-from custom_exceptions import PortBindingException, UnexpectedMessageReceivedException
+from custom_exceptions import (
+    PortBindingException,
+    TrackerHandshakeException,
+    UnexpectedMessageReceivedException
+)
 from printer import PeerPrinter
 import utils
 
@@ -68,16 +73,25 @@ class Peer(object):
             socket.close()
             return port
 
-    def run(self) -> None:
-        """ Runs the peer until it has acquired all files, is not exchanging chunks
-            with any other peer and has waited an additional amount of time
-            (min_alive_time).
+    def handle_handshake(self, shard_dir) -> Tuple[socket, socket]:
+        """ Handles initial handshake with tracker.
+
+        Args:
+            shard_dir:
+
+        Returns:
+            A tuple containing:
+                * A socket connected with TCP to the tracker
+                * A socket prepared to listen for UDP data from other peers.
+        Raises:
+            TrackerHandshakeException: If there is an error establishing a connection
+                with the tracker and communicating the necessary messages.
         """
         ## Receive new port.
-        ## TODO: do custom exceptions.
         tracker_port = self.get_tracker_port()
         if tracker_port < 0:
-            return
+            _logger.error("Could not establish a TCP port for the peer.")
+            raise TrackerHandshakeException()
         _logger.warning(f"Received new port from tracker: {tracker_port}.")
 
         ## Disconnect and create new TCP to tracker.
@@ -88,7 +102,8 @@ class Peer(object):
                 f"While attempting to connect to new Tracker connection, either could"
                 f" not create or bind to port locally."
             )
-            return
+            raise TrackerHandshakeException()
+
         tracker_socket.connect((self.tracker_addr, tracker_port))
         _logger.warning(f"Connected to individual connection of thread. ")
 
@@ -98,18 +113,19 @@ class Peer(object):
             self.id = int(self_ID)
         except ValueError:
             _logger.error(f"Invalid ID from tracker: {self_ID}. Exiting.")
-            return
+            raise TrackerHandshakeException()
 
         ## Send addr & port for other peers to connect to you with
         try:
-            server_socket, peer_port = utils.bind_TCP_port("")
-            server_socket.listen(1)
+            server_socket, peer_port = utils.bind_UDP_port("")
+
         except PortBindingException:
             _logger.error(
                 f"While attempting to connect to new Tracker connection, either could"
                 f" not create or bind to port locally."
             )
-            return
+            raise TrackerHandshakeException()
+
         msg = utils.create_new_peer_message(self.id, self.addr, peer_port)
         tracker_socket.send(msg)
         _logger.warning(f"[{self.id}]: Sent Tracker new peer message")
@@ -117,7 +133,8 @@ class Peer(object):
         ## Send filename and number of chunks
         files = os.listdir(constants.PEER_FILE_DIRECTORY)
         _logger.warning(f"Peer {self.id} has files: {files}.")
-        file_sizes = [os.path.getsize(f"{constants.PEER_FILE_DIRECTORY}{f}") for f in files]
+        file_sizes = [os.path.getsize(f"{constants.PEER_FILE_DIRECTORY}{f}") for f in
+                      files]
         no_chunks = [math.ceil(size / constants.CHUNK_SIZE) for size in file_sizes]
 
         msg = utils.create_new_file_message(self.id, [(file, chunks) for file, chunks in
@@ -125,6 +142,14 @@ class Peer(object):
         tracker_socket.send(msg)
         for file, chunks in zip(files, no_chunks):
             self.acquired_files[file] = list(range(chunks))
+
+            # Shard file chunks
+            with open(f"{constants.PEER_FILE_DIRECTORY}{file}", "r") as f:
+                for chunk in self.acquired_files[file]:
+                    f.seek(constants.CHUNK_SIZE * chunk)
+                    data = f.read(constants.CHUNK_SIZE)
+                    self.shard_file_chunk(shard_dir, file, chunk, data)
+
 
         _logger.warning(f"[{self.id}]: Sent Tracker filename and chunk count.")
 
@@ -137,47 +162,105 @@ class Peer(object):
         ## Get list of (addr, port) for other peers.
         msg = tracker_socket.recv(constants.MAX_BUFFER_SIZE)
         self.peer_info = utils.parse_peer_list_message(msg)
-        _logger.warning(f"[{self.id}]: Received peer data from tracker: {self.peer_info}.")
+        _logger.warning(
+            f"[{self.id}]: Received peer data from tracker: {self.peer_info}.")
 
-        # Setup giving thread.
-        giving_t = threading.Thread(target=self.handle_giving_port, args=(server_socket,))
-        giving_t.start()
+        return tracker_socket, server_socket
 
-        # Don't block on tracker socket.
-        # tracker_socket.settimeout(2)
+    def shard_file_chunk(self, tmp_dir: str, filename: str, chunk: id, data: str) -> None:
+        """ Shards a file chunk to disk.
 
-        # Acquire files or wait to exit.
-        while constants.FOREVER:
-            self.handle_messages_from_tracker(tracker_socket)
+        Args:
+            tmp_dir: Directory to store temporary shards
+            filename: The name of the originl file
+            chunk: The chunk id
+            data: The data to save to file.
+        """
+        with open (f"{tmp_dir}/{filename}_{chunk}.chunk", "w") as f:
+            f.write(data)
 
-            if self.chunky.has_all_files(self.acquired_files):
-                _logger.warning(f"[{self.id}]: Have all files, sleeping")
+    def load_shard_file_chunk(self, tmp_dir: str, filename: str, chunk: id) -> str:
+        """ Loads data from a chunk to file.
 
-                # Check if peer gives data whilst sleeping.
-                self.giving_data = False
-                time.sleep(self.min_alive_time)
+        Args:
+            tmp_dir: Directory to store temporary shards
+            filename: The name of the originl file
+            chunk: The chunk id
 
-                # Check for new messages
+        Returns:
+            Data from a shard
+        """
+        with open (f"{tmp_dir}/{filename}_{chunk}.chunk", "r") as f:
+            return f.read()
+
+    def run(self) -> None:
+        """ Runs the peer until it has acquired all files, is not exchanging chunks
+            with any other peer and has waited an additional amount of time
+            (min_alive_time).
+        """
+        with tempfile.TemporaryDirectory() as shard_directory:
+            self.shard_dir = shard_directory
+            try:
+                tracker_socket, server_socket = self.handle_handshake(shard_directory)
+            except TrackerHandshakeException:
+                _logger.error(f"Tracker handshake failed. Peer terminating.")
+                return None
+
+            # Setup giving thread.
+            giving_t = threading.Thread(target=self.handle_giving_port, args=(server_socket, shard_directory))
+            giving_t.start()
+
+            # Acquire files or wait to exit.
+            while constants.FOREVER:
                 self.handle_messages_from_tracker(tracker_socket)
-                _logger.warning(f"[{self.id}]: Handled any extra tracker messages")
 
-                # Check if no new files are in system and peer has not given data whilst asleep.
-                if self.chunky.has_all_files(self.acquired_files) and not self.giving_data:
+                if self.chunky.has_all_files(self.acquired_files):
+                    _logger.warning(f"[{self.id}]: Have all files, sleeping")
 
-                    # Else disconnect.
-                    tracker_socket.send(utils.create_peer_disconnect_message(self.id))
-                    _logger.info(f"[{self.id}]: Peer has disconnected.")
-                    tracker_socket.close()
-                    server_socket.close()
+                    # Check if peer gives data whilst sleeping.
+                    self.giving_data = False
+                    time.sleep(self.min_alive_time)
 
-                    # Assume peer has no partial files.
-                    PeerPrinter.print_peer_disconnect(self.id, self.acquired_files.keys())
-                    return
+                    # Check for new messages
+                    self.handle_messages_from_tracker(tracker_socket)
+                    _logger.warning(f"[{self.id}]: Handled any extra tracker messages")
 
-            # Get files from peer
-            else:
-                _logger.warning(f"Peer {self.id} acquiring files. Has {self.acquired_files}")
-                self.acquire_files(tracker_socket)
+                    # Check if no new files are in system and peer has not given data whilst asleep.
+                    if self.chunky.has_all_files(self.acquired_files) and not self.giving_data:
+
+                        # Else disconnect.
+                        tracker_socket.send(utils.create_peer_disconnect_message(self.id))
+                        _logger.info(f"[{self.id}]: Peer has disconnected.")
+                        tracker_socket.close()
+                        server_socket.close()
+
+                        self.save_files(self.acquired_files, self.shard_dir)
+
+                        # Assume peer has no partial files.
+                        PeerPrinter.print_peer_disconnect(self.id, self.acquired_files.keys())
+                        return
+
+                # Get files from peer
+                else:
+                    _logger.warning(f"Peer {self.id} acquiring files. Has {self.acquired_files}")
+                    self.acquire_files(tracker_socket)
+
+    def save_files(self, acquired_files: Dict[str, List[int]], shard_dir: str) -> None:
+        """ Saves files in data folder, from temporary shards.
+
+        Args:
+            acquired_files: A mapping of filenames to a list of chunk numbers.
+            shard_dir: The directory containing the file shards.
+        """
+        for file, chunks in acquired_files.items():
+            chunks.sort()
+
+            # Save time by not remaking own files from shards.
+            if not os.path.exists(f"{constants.PEER_FILE_DIRECTORY}{file}"):
+                with open(f"{constants.PEER_FILE_DIRECTORY}{file}", "w") as whole_file:
+                    for c in chunks:
+                        with open(f"{shard_dir}/{file}_{c}.chunk", "r") as shard_file:
+                            whole_file.write(shard_file.read())
 
 
     def acquire_files(self, tracker_socket):
@@ -265,73 +348,58 @@ class Peer(object):
         """
         # Create new TCP socket
         try:
-            socket, port= utils.bind_TCP_port("")
+            socket, port = utils.bind_UDP_port("")
         except PortBindingException:
             return False
 
-        # Attempt to connect to peer
-        socket.connect(peer_info)
 
         # Ask for chunks
-        socket.send(utils.create_chunk_request_message(filename, chunks))
+        socket.sendto(utils.create_chunk_request_message(filename, chunks), peer_info)
 
         # Get each file, store in memory
         chunks_data = []
         try:
-            msg = socket.recv(constants.MAX_BUFFER_SIZE)
+            msg, addr = socket.recvfrom(constants.MAX_BUFFER_SIZE)
             filename, c_id, data = utils.parse_file_chunk_message(msg)
-            chunks_data.append((c_id, data))
+            self.shard_file_chunk(self.shard_dir, filename, c_id, data)
+            chunks_data.append(c_id)
         except timeout:
             _logger.info(f"Timeout occured when waiting for file: {filename}.")
 
-        chunks_data.sort(key=lambda x: x[0])
+        return chunks_data
 
-        # TODO: change this. currently required complete file transmitted.
-        # Only add chunks to file if sequential.
-        for i in range(len(chunks_data)):
-            if chunks_data[i][0] != i:
-                chunks_data = chunks_data[:i]
-                break
-
-        # Save to file
-        with open(f"{constants.PEER_FILE_DIRECTORY}{filename}", "a+") as f:
-            for i in chunks_data:
-                f.write(i[-1])
-        return [i[0] for i in chunks_data]
-
-    def handle_giving_port(self, socket):
+    def handle_giving_port(self, socket: socket, shard_directory: str):
         """ A thread dedicated to listening for other peers communicating with it and
         sending them file chunks that this peer has locally.
 
         Args:
             socket: A configured socket ready to accept TCP connections.
+            shard_directory: The temporary directory containing file shards.
         """
 
         while constants.FOREVER:
             try:
-                c, addr = socket.accept()
+                msg, peer_addr = socket.recvfrom(constants.MAX_BUFFER_SIZE)
+                self.giving_data = True
+                filename, chunks = utils.parse_chunk_request_message(msg)
+
+            # No new messages.
             except timeout:
                 continue
 
+            # Main thread has ended. Terminate likewise
             except OSError:
-                _logger.info(f"Socket closed. Peer has disconnected")
                 return
 
-            self.giving_data = True
-            msg = c.recv(constants.MAX_BUFFER_SIZE)
-            try:
-                filename, chunks = utils.parse_chunk_request_message(msg)
             except UnexpectedMessageReceivedException as e:
                 _logger.error(f"Error while parsing message from peer. Error: {str(e)}")
                 continue
 
-            chunks.sort()
-            with open(f"{constants.PEER_FILE_DIRECTORY}{filename}") as f:
-                for chunk in chunks:
-                    f.seek(constants.CHUNK_SIZE * chunk)
+            for chunk in chunks:
+                with open(f"{shard_directory}/{filename}_{chunk}.chunk", "r") as f:
                     data = f.read(constants.CHUNK_SIZE)
-                    c.send(utils.create_file_chunk_message(filename, chunk, data))
-            c.close()
+                    socket.sendto(utils.create_file_chunk_message(filename, chunk, data), peer_addr)
+
             self.giving_data = True
 
 def main():

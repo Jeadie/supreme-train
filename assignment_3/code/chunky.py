@@ -89,7 +89,9 @@ class Chunky(object):
             self.files[filename][chunkId].append(peerId)
         except KeyError:
             print(
-                f"ERROR: No peers for {filename}:{chunkId} yet {peerId} acquired it. {self.files}")
+                f"ERROR: No peers for {filename}:{chunkId} yet {peerId} acquired it."
+                f"{self.files}"
+            )
             self.files[filename][chunkId] = [peerId]
 
     def remove_peer(self, peerId: int) -> None:

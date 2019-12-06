@@ -12,3 +12,9 @@ class UnexpectedMessageReceivedException(Exception):
 
     """
     pass
+
+class TrackerHandshakeException(Exception):
+    """ This exception is raised when the peer fails the full tracker handshake process.
+
+    """
+    pass
