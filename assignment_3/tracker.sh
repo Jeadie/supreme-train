@@ -1,3 +1,3 @@
 #!/bin/bash
 
-python code/tracker.py
+python3 code/tracker.py

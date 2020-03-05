@@ -134,18 +134,22 @@ class Tracker(object):
                             constants.MESSAGE_SEPARATOR, 1)
                         peer_id = int(msg_chunk)
                     except ValueError:
-                        _logger.error(f"Peer Disconnect message has invalid payload: {msg_chunk}.")
+                        _logger.error(
+                            f"Peer Disconnect message has invalid payload: {msg_chunk}.")
                         break
 
                     _logger.warning(f"Peer {peer_id} is disconnecting.")
                     self.queuey.disconnect(peer_id)
-                    self.printer.print_peer_disconnect(peer_id, self.chunky.get_peers_files(peer_id))
+                    self.printer.print_peer_disconnect(peer_id,
+                                                       self.chunky.get_peers_files(
+                                                           peer_id))
                     if peer_id == connPeerId:
                         socket.close()
                         return
 
                 elif msg_code == MessageCode.PEER_ACQUIRED_CHUNK:
-                    peer_id, filename, chunk = utils.parse_peer_acquired_chunk_message(msg)
+                    peer_id, filename, chunk = utils.parse_peer_acquired_chunk_message(
+                        msg)
                     self.queuey.peer_acquired_chunk(connPeerId, filename, chunk)
                     self.printer.print_peer_acquire_chunk(
                         connPeerId,
@@ -173,10 +177,7 @@ class Tracker(object):
                 if len(msgs) == 0:
                     _logger.warning(f"{connPeerId} queue empty.")
 
-
-
         _logger.error(f"TRACKER THREAD DONE: {connPeerId}")
-
 
     def run(self) -> None:
         """ Runs the tracker server indefinitely.
@@ -207,14 +208,7 @@ class Tracker(object):
 
 
 def main():
-    # Setup Logging
-    stdout_handler = logging.StreamHandler(stream=sys.stdout)
-    stdout_handler.setLevel(logging.ERROR)
-    # _logger.addHandler(stdout_handler)
-
     addr = gethostbyname(gethostname())
-
-
     t = Tracker("127.0.0.1")
     t.run()
 
